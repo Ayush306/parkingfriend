@@ -1,0 +1,90 @@
+[
+  {
+    "id": "u1",
+    "name": "Aarav Malhotra",
+    "phone": "+91 98110 24567",
+    "email": "aarav.malhotra@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=12",
+    "verified": true,
+    "memberSince": "2023-03-14",
+    "rating": 4.8,
+    "role": "both"
+  },
+  {
+    "id": "u2",
+    "name": "Priya Sharma",
+    "phone": "+91 99716 88203",
+    "email": "priya.sharma@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=5",
+    "verified": true,
+    "memberSince": "2022-11-02",
+    "rating": 4.9,
+    "role": "host"
+  },
+  {
+    "id": "u3",
+    "name": "Rohan Verma",
+    "phone": "+91 98188 45120",
+    "email": "rohan.verma@outlook.com",
+    "avatar": "https://i.pravatar.cc/150?img=33",
+    "verified": true,
+    "memberSince": "2023-07-21",
+    "rating": 4.7,
+    "role": "host"
+  },
+  {
+    "id": "u4",
+    "name": "Neha Gupta",
+    "phone": "+91 97114 33908",
+    "email": "neha.gupta@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=47",
+    "verified": true,
+    "memberSince": "2024-01-09",
+    "rating": 4.6,
+    "role": "host"
+  },
+  {
+    "id": "u5",
+    "name": "Vikram Singh",
+    "phone": "+91 98991 20475",
+    "email": "vikram.singh@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=51",
+    "verified": true,
+    "memberSince": "2022-06-30",
+    "rating": 4.8,
+    "role": "host"
+  },
+  {
+    "id": "u6",
+    "name": "Ananya Iyer",
+    "phone": "+91 99539 77641",
+    "email": "ananya.iyer@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=44",
+    "verified": true,
+    "memberSince": "2023-09-18",
+    "rating": 4.9,
+    "role": "host"
+  },
+  {
+    "id": "u7",
+    "name": "Kabir Chaudhary",
+    "phone": "+91 98107 66234",
+    "email": "kabir.chaudhary@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=15",
+    "verified": false,
+    "memberSince": "2024-05-27",
+    "rating": 4.5,
+    "role": "host"
+  },
+  {
+    "id": "u8",
+    "name": "Sanya Kapoor",
+    "phone": "+91 97186 09312",
+    "email": "sanya.kapoor@gmail.com",
+    "avatar": "https://i.pravatar.cc/150?img=20",
+    "verified": true,
+    "memberSince": "2023-12-05",
+    "rating": 4.7,
+    "role": "driver"
+  }
+]

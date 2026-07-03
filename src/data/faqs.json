@@ -1,0 +1,62 @@
+[
+  {
+    "id": "f1",
+    "question": "How do I book a parking spot on Parkmitter?",
+    "answer": "Search for spots near your station or area, pick one you like, choose your date and time, add your vehicle details and pay. You'll instantly receive a booking OTP and can unlock the host's contact.",
+    "category": "Booking"
+  },
+  {
+    "id": "f2",
+    "question": "How do I reach the parking spot after booking?",
+    "answer": "Open your booking from the Bookings tab to see the exact address, landmark, host instructions and a map preview. Share your OTP with the host or attendant on arrival.",
+    "category": "Booking"
+  },
+  {
+    "id": "f3",
+    "question": "Can I cancel a booking and get a refund?",
+    "answer": "Yes. You can cancel from the booking details screen. Cancellations made before the parking start time are refunded to your Parkmitter Wallet within minutes.",
+    "category": "Booking"
+  },
+  {
+    "id": "f4",
+    "question": "What payment methods are supported?",
+    "answer": "You can pay using your Parkmitter Wallet, UPI, or credit and debit cards. Add money to your wallet anytime for faster checkout.",
+    "category": "Payments"
+  },
+  {
+    "id": "f5",
+    "question": "How do coupons and offers work?",
+    "answer": "Enter a valid coupon code at the payment step or pick one from the Coupons screen. The discount is applied instantly if your booking meets the minimum amount.",
+    "category": "Payments"
+  },
+  {
+    "id": "f6",
+    "question": "How do I list my own parking space?",
+    "answer": "Tap 'List your space' from your Profile, add photos, address, availability and pricing. Once live, drivers can book it and you'll get requests to accept or decline.",
+    "category": "Hosting"
+  },
+  {
+    "id": "f7",
+    "question": "How do I get paid as a host?",
+    "answer": "Earnings from confirmed bookings are credited to your Parkmitter Wallet after the parking is completed. You can withdraw to your bank anytime.",
+    "category": "Hosting"
+  },
+  {
+    "id": "f8",
+    "question": "Is my vehicle safe at Parkmitter spots?",
+    "answer": "Many spots feature CCTV, gated access, guards and good lighting, shown as amenities on each listing. We also verify hosts to keep the community trusted and safe.",
+    "category": "Safety"
+  },
+  {
+    "id": "f9",
+    "question": "What does the verified badge mean?",
+    "answer": "A verified badge means the host or user has completed identity verification with Parkmitter, adding an extra layer of trust to every booking.",
+    "category": "Safety"
+  },
+  {
+    "id": "f10",
+    "question": "How do I contact support?",
+    "answer": "Reach us anytime from the Help & Support screen. You can browse FAQs, chat with our team or raise a report about a booking or spot.",
+    "category": "Support"
+  }
+]

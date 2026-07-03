@@ -1,0 +1,58 @@
+[
+  {
+    "id": "r1",
+    "userName": "Sanya Kapoor",
+    "avatar": "https://i.pravatar.cc/150?img=20",
+    "rating": 5,
+    "comment": "Super convenient spot right next to the metro. Host was quick to respond and the driveway is well-lit. Will book again!",
+    "date": "2026-06-25"
+  },
+  {
+    "id": "r2",
+    "userName": "Manish Arora",
+    "avatar": "https://i.pravatar.cc/150?img=8",
+    "rating": 4,
+    "comment": "Clean and safe basement parking. Slightly tricky to find the entry the first time, but instructions helped.",
+    "date": "2026-06-20"
+  },
+  {
+    "id": "r3",
+    "userName": "Divya Nair",
+    "avatar": "https://i.pravatar.cc/150?img=25",
+    "rating": 5,
+    "comment": "Saved me so much time during my daily commute. CCTV and a guard on duty made me feel secure leaving my car all day.",
+    "date": "2026-06-14"
+  },
+  {
+    "id": "r4",
+    "userName": "Arjun Mehta",
+    "avatar": "https://i.pravatar.cc/150?img=53",
+    "rating": 4,
+    "comment": "Good value for money near IFFCO Chowk. EV charging was a nice bonus. Would love a covered option next time.",
+    "date": "2026-06-09"
+  },
+  {
+    "id": "r5",
+    "userName": "Ritika Bansal",
+    "avatar": "https://i.pravatar.cc/150?img=32",
+    "rating": 5,
+    "comment": "Host Priya is fantastic. Shared a QR pass instantly and even guided me over call. Best parking experience in Gurugram.",
+    "date": "2026-06-03"
+  },
+  {
+    "id": "r6",
+    "userName": "Sameer Khanna",
+    "avatar": "https://i.pravatar.cc/150?img=60",
+    "rating": 3,
+    "comment": "Decent spot but the open lot got quite dusty. Fine for a few hours, wouldn't leave the car overnight.",
+    "date": "2026-05-28"
+  },
+  {
+    "id": "r7",
+    "userName": "Pooja Reddy",
+    "avatar": "https://i.pravatar.cc/150?img=41",
+    "rating": 5,
+    "comment": "Exactly as described. Shaded, gated and steps from the station. Parkmitter is a lifesaver for daily metro riders.",
+    "date": "2026-05-22"
+  }
+]

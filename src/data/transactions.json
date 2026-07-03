@@ -1,0 +1,92 @@
+[
+  {
+    "id": "t1",
+    "type": "credit",
+    "title": "Money added to wallet",
+    "amount": 1000,
+    "date": "2026-06-28T14:22:00+05:30",
+    "method": "UPI - Google Pay",
+    "status": "success"
+  },
+  {
+    "id": "t2",
+    "type": "debit",
+    "title": "Booking at Basement Parking near Sikanderpur",
+    "amount": 250,
+    "date": "2026-07-01T08:12:00+05:30",
+    "method": "Parkmitter Wallet",
+    "status": "success"
+  },
+  {
+    "id": "t3",
+    "type": "debit",
+    "title": "Booking at Bike & Car Basement at Sikanderpur",
+    "amount": 260,
+    "date": "2026-06-24T07:50:00+05:30",
+    "method": "Parkmitter Wallet",
+    "status": "success"
+  },
+  {
+    "id": "t4",
+    "type": "credit",
+    "title": "Refund for cancelled booking",
+    "amount": 220,
+    "date": "2026-06-11T18:35:00+05:30",
+    "method": "Parkmitter Wallet",
+    "status": "success"
+  },
+  {
+    "id": "t5",
+    "type": "credit",
+    "title": "Cashback on PARK50 offer",
+    "amount": 50,
+    "date": "2026-06-24T07:51:00+05:30",
+    "method": "Parkmitter Rewards",
+    "status": "success"
+  },
+  {
+    "id": "t6",
+    "type": "credit",
+    "title": "Money added to wallet",
+    "amount": 500,
+    "date": "2026-06-15T11:40:00+05:30",
+    "method": "UPI - PhonePe",
+    "status": "success"
+  },
+  {
+    "id": "t7",
+    "type": "debit",
+    "title": "Booking at Open Lot beside MG Road Metro",
+    "amount": 140,
+    "date": "2026-06-18T10:20:00+05:30",
+    "method": "UPI - Google Pay",
+    "status": "success"
+  },
+  {
+    "id": "t8",
+    "type": "credit",
+    "title": "Money added to wallet",
+    "amount": 750,
+    "date": "2026-06-02T09:15:00+05:30",
+    "method": "Credit Card - HDFC",
+    "status": "success"
+  },
+  {
+    "id": "t9",
+    "type": "debit",
+    "title": "Wallet top-up (processing)",
+    "amount": 300,
+    "date": "2026-07-01T07:05:00+05:30",
+    "method": "UPI - Paytm",
+    "status": "pending"
+  },
+  {
+    "id": "t10",
+    "type": "debit",
+    "title": "Booking payment attempt",
+    "amount": 150,
+    "date": "2026-06-20T16:48:00+05:30",
+    "method": "Credit Card - ICICI",
+    "status": "failed"
+  }
+]
