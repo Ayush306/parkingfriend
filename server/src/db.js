@@ -420,6 +420,7 @@ function toHostRequest(row) {
   if (!row) return null;
   return {
     id: row.id,
+    bookingId: row.bookingId || undefined,
     spotTitle: row.spotTitle,
     requesterName: row.requesterName,
     requesterPhone: row.requesterPhone || null,

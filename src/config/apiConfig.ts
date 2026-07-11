@@ -13,7 +13,7 @@
  * The server code lives in the `server/` folder of this repo — see
  * server/README.md and DEPLOYMENT.md for how to run and deploy it.
  */
-export const API_URL: string = "";
+export const API_URL: string = "https://parkingfriend-api.onrender.com";
 
 /** True when the app should use the real backend instead of mock data. */
 export function isApiEnabled(): boolean {
