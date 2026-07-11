@@ -51,6 +51,12 @@
           "locationWhenInUsePermission": "ParkingFriend uses your location to find parking spots near you and to let you pin your own space on the map."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fc76022e-39fa-40c4-a1af-3a92d9da8ccb"
+      }
+    },
+    "owner": "ayushtomar306"
   }
 }
