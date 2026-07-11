@@ -51,8 +51,16 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = Number(process.env.PORT) || 4000;
-app.listen(PORT, () => {
-  console.log(`Parkmitter API listening on http://localhost:${PORT} (db: ${db.backend})`);
-});
+// Make sure the schema exists (libsql is async) before accepting traffic.
+db.init()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Parkmitter API listening on http://localhost:${PORT} (db: ${db.backend})`);
+    });
+  })
+  .catch((err) => {
+    console.error("[db] Failed to initialize database:", err);
+    process.exit(1);
+  });
 
 module.exports = app;

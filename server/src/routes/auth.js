@@ -15,6 +15,9 @@ const { signToken, requireAuth } = require("../auth");
 
 const router = express.Router();
 
+/** Route async handlers' rejections to the central error handler (Express 4). */
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const DEV_OTP = "123456";
 
 function readPhone(body) {
@@ -34,7 +37,7 @@ router.post("/auth/request-otp", (req, res) => {
   res.json({ ok: true, devOtp: DEV_OTP });
 });
 
-router.post("/auth/verify-otp", (req, res) => {
+router.post("/auth/verify-otp", ah(async (req, res) => {
   const phone = readPhone(req.body);
   if (!phone) {
     return res.status(400).json({ error: "A valid phone number is required" });
@@ -43,12 +46,12 @@ router.post("/auth/verify-otp", (req, res) => {
   if (otp !== DEV_OTP) {
     return res.status(401).json({ error: "Invalid OTP" });
   }
-  let user = db.findUserByPhone(phone);
+  let user = await db.findUserByPhone(phone);
   if (!user) {
-    user = db.createUser({ phone });
+    user = await db.createUser({ phone });
   }
   res.json({ token: signToken(user), user: db.toUser(user) });
-});
+}));
 
 router.get("/me", requireAuth, (req, res) => {
   res.json(db.toUser(req.user));

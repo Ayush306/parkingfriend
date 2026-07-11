@@ -19,9 +19,12 @@ const db = require("../db");
 
 const router = express.Router();
 
-router.get("/", (req, res) => {
+/** Route async handlers' rejections to the central error handler (Express 4). */
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+router.get("/", ah(async (req, res) => {
   const { query, vehicleType, freeOnly, maxPrice, sort } = req.query;
-  let spots = db.listSpots().map(db.toSpot);
+  let spots = await Promise.all((await db.listSpots()).map(db.toSpot));
 
   const q = typeof query === "string" ? query.trim().toLowerCase() : "";
   if (q) {
@@ -63,23 +66,21 @@ router.get("/", (req, res) => {
   }
 
   res.json(spots);
-});
+}));
 
-router.get("/popular", (req, res) => {
-  const spots = db
-    .listSpots()
-    .map(db.toSpot)
+router.get("/popular", ah(async (req, res) => {
+  const spots = (await Promise.all((await db.listSpots()).map(db.toSpot)))
     .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount)
     .slice(0, 6);
   res.json(spots);
-});
+}));
 
-router.get("/:id", (req, res) => {
-  const row = db.getSpotRow(req.params.id);
+router.get("/:id", ah(async (req, res) => {
+  const row = await db.getSpotRow(req.params.id);
   if (!row) {
     return res.status(404).json({ error: "Parking spot not found" });
   }
-  res.json(db.toSpot(row));
-});
+  res.json(await db.toSpot(row));
+}));
 
 module.exports = router;

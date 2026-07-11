@@ -35,12 +35,15 @@ function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
-  const user = db.getUserById(payload.sub);
-  if (!user) {
-    return res.status(401).json({ error: "User no longer exists" });
-  }
-  req.user = user; // raw users row; serialize with db.toUser / db.toHost
-  next();
+  db.getUserById(payload.sub)
+    .then((user) => {
+      if (!user) {
+        return res.status(401).json({ error: "User no longer exists" });
+      }
+      req.user = user; // raw users row; serialize with db.toUser / db.toHost
+      next();
+    })
+    .catch(next); // db failure -> central error handler, not a hang
 }
 
 module.exports = { signToken, verifyToken, requireAuth, JWT_SECRET };

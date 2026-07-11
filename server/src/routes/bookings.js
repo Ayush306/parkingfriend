@@ -23,6 +23,9 @@ const { requireAuth } = require("../auth");
 const router = express.Router();
 router.use(requireAuth);
 
+/** Route async handlers' rejections to the central error handler (Express 4). */
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
@@ -70,9 +73,9 @@ function computeAmount(spotRow, durationHours) {
   return Math.round(days * perDay + remainder);
 }
 
-router.get("/", (req, res) => {
-  res.json(db.listBookingsByUser(req.user.id).map(db.toBooking));
-});
+router.get("/", ah(async (req, res) => {
+  res.json(await Promise.all((await db.listBookingsByUser(req.user.id)).map(db.toBooking)));
+}));
 
 const DEFAULT_START_TIME = "09:00";
 const DEFAULT_DURATION_HOURS = 8;
@@ -83,13 +86,13 @@ function todayLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-router.post("/", (req, res) => {
+router.post("/", ah(async (req, res) => {
   const body = req.body || {};
 
   if (!isNonEmptyString(body.spotId)) {
     return res.status(400).json({ error: '"spotId" is required' });
   }
-  const spotRow = db.getSpotRow(body.spotId.trim());
+  const spotRow = await db.getSpotRow(body.spotId.trim());
   if (!spotRow) {
     return res.status(404).json({ error: "Parking spot not found" });
   }
@@ -130,10 +133,9 @@ router.post("/", (req, res) => {
     otp: null,
     createdAt: now,
   };
-  db.insertBooking(booking);
-
-  // Notify the spot's host: create a pending request tied to this booking.
-  db.insertRequest({
+  // One atomic batch: booking + the pending host request that notifies the
+  // spot's host. Either both rows land or neither does.
+  await db.createBookingWithRequest(booking, {
     id: db.genId("hr"),
     hostId: spotRow.hostId,
     spotId: spotRow.id,
@@ -148,26 +150,26 @@ router.post("/", (req, res) => {
     status: "pending",
   });
 
-  res.status(201).json(db.toBooking(booking));
-});
+  res.status(201).json(await db.toBooking(booking));
+}));
 
-router.post("/:id/cancel", (req, res) => {
-  const booking = db.getBookingRow(req.params.id);
+router.post("/:id/cancel", ah(async (req, res) => {
+  const booking = await db.getBookingRow(req.params.id);
   if (!booking || booking.userId !== req.user.id) {
     return res.status(404).json({ error: "Booking not found" });
   }
   if (booking.status === "cancelled") {
-    return res.json(db.toBooking(booking)); // already cancelled — idempotent
+    return res.json(await db.toBooking(booking)); // already cancelled — idempotent
   }
   if (booking.status === "completed") {
     return res.status(409).json({ error: "A completed booking cannot be cancelled" });
   }
   // body.reason is accepted (and currently just acknowledged) — no column for it yet.
-  const updated = db.updateBooking(booking.id, {
+  const updated = await db.updateBooking(booking.id, {
     status: "cancelled",
     contactUnlocked: false,
   });
-  res.json(db.toBooking(updated));
-});
+  res.json(await db.toBooking(updated));
+}));
 
 module.exports = router;

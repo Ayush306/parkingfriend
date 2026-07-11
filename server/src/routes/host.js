@@ -19,16 +19,19 @@ const { requireAuth } = require("../auth");
 const router = express.Router();
 router.use(requireAuth);
 
+/** Route async handlers' rejections to the central error handler (Express 4). */
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const SPOT_TYPES = ["home", "driveway", "garage", "openlot", "basement"];
 const VEHICLE_TYPES = ["car", "bike", "suv"];
 
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
-router.get("/listings", (req, res) => {
-  res.json(db.listSpotsByHost(req.user.id).map(db.toSpot));
-});
+router.get("/listings", ah(async (req, res) => {
+  res.json(await Promise.all((await db.listSpotsByHost(req.user.id)).map(db.toSpot)));
+}));
 
-router.post("/listings", (req, res) => {
+router.post("/listings", ah(async (req, res) => {
   const p = req.body || {};
 
   for (const field of ["title", "address", "area", "landmark", "nearStation", "availableFrom", "availableTo"]) {
@@ -85,16 +88,16 @@ router.post("/listings", (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  db.insertSpot(row);
-  res.status(201).json(db.toSpot(row));
-});
+  await db.insertSpot(row);
+  res.status(201).json(await db.toSpot(row));
+}));
 
-router.get("/requests", (req, res) => {
-  res.json(db.listRequestsByHost(req.user.id).map(db.toHostRequest));
-});
+router.get("/requests", ah(async (req, res) => {
+  res.json((await db.listRequestsByHost(req.user.id)).map(db.toHostRequest));
+}));
 
-router.post("/requests/:id/respond", (req, res) => {
-  const request = db.getRequestRow(req.params.id);
+router.post("/requests/:id/respond", ah(async (req, res) => {
+  const request = await db.getRequestRow(req.params.id);
   if (!request || request.hostId !== req.user.id) {
     return res.status(404).json({ error: "Request not found" });
   }
@@ -104,29 +107,16 @@ router.post("/requests/:id/respond", (req, res) => {
   }
 
   const wasAccepted = request.status === "accepted";
-  const updated = db.updateRequest(request.id, {
-    status: accept ? "accepted" : "declined",
-  });
-
-  // Sync the linked booking: accept confirms it and reveals the host's phone
-  // to the driver (contactUnlocked); decline cancels it (phone stays hidden).
-  if (request.bookingId && db.getBookingRow(request.bookingId)) {
-    db.updateBooking(
-      request.bookingId,
-      accept
-        ? { status: "confirmed", contactUnlocked: true }
-        : { status: "cancelled" }
-    );
-  }
 
   // Record hosting income when a request is newly accepted so the wallet reflects it.
+  let earningRow = null;
   if (accept && !wasAccepted) {
     let amount = 150; // fallback when the spot's pricing can't be resolved
-    const spotRow = request.spotId ? db.getSpotRow(request.spotId) : null;
+    const spotRow = request.spotId ? await db.getSpotRow(request.spotId) : null;
     if (spotRow && Number(spotRow.pricePerDay) > 0) {
       amount = Number(spotRow.pricePerDay);
     }
-    db.insertEarning({
+    earningRow = {
       id: db.genId("e"),
       userId: req.user.id,
       kind: "earning",
@@ -135,10 +125,15 @@ router.post("/requests/:id/respond", (req, res) => {
       amount,
       date: new Date().toISOString(),
       bookingId: request.bookingId || null,
-    });
+    };
   }
 
+  // One atomic batch: request status + linked booking sync (accept confirms it
+  // and reveals the host's phone via contactUnlocked; decline cancels it with
+  // the phone still hidden) + the earning insert. No partial writes possible.
+  const updated = await db.respondToRequest(request, accept, earningRow);
+
   res.json(db.toHostRequest(updated));
-});
+}));
 
 module.exports = router;

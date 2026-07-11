@@ -34,20 +34,42 @@ bookings/requests/earnings through the request → accept flow below.
 
 Environment (see `.env.example` — set real env vars or use a dotenv wrapper):
 
-| Variable     | Default                 | Purpose                                   |
-| ------------ | ----------------------- | ----------------------------------------- |
-| `PORT`       | `4000`                  | HTTP port                                 |
-| `JWT_SECRET` | `parkmitter-dev-secret` | JWT signing secret — change in production |
-| `DB_BACKEND` | auto                    | `json` forces the JSON store; `sqlite` forces better-sqlite3 |
+| Variable             | Default                    | Purpose                                   |
+| -------------------- | -------------------------- | ----------------------------------------- |
+| `PORT`               | `4000`                     | HTTP port                                 |
+| `JWT_SECRET`         | `parkmitter-dev-secret`    | JWT signing secret — change in production |
+| `TURSO_DATABASE_URL` | `file:data/parkmitter.db`  | libsql URL. Unset = local SQLite file; `libsql://...` = Turso cloud |
+| `TURSO_AUTH_TOKEN`   | –                          | Turso auth token (only needed with a `libsql://` URL) |
 
 ## Storage
 
-`src/db.js` hides the backend behind one repository interface:
+`src/db.js` is the single repository layer, built on
+[`@libsql/client`](https://github.com/tursodatabase/libsql-client-ts). All
+repository functions are **async**. One client, two modes:
 
-- **better-sqlite3** file DB at `server/data/parkmitter.db` (preferred; WAL mode).
-- **JSON file store** (`src/jsondb.js`, `server/data/parkmitter.json`) — automatic
-  fallback when the better-sqlite3 native module cannot load (e.g. install
-  failures on restricted networks). `GET /health` reports which one is active.
+- **Local dev (default — no env needed):** plain SQLite file at
+  `server/data/parkmitter.db` (the default url `file:data/parkmitter.db`,
+  resolved from the `server/` folder — run `npm start` / `npm run seed` from
+  there, which npm does automatically). WAL mode, like before.
+- **Production — Turso (free cloud SQLite):** set `TURSO_DATABASE_URL` +
+  `TURSO_AUTH_TOKEN`. Setup once:
+  1. Sign up (free) at [turso.tech](https://turso.tech) and install the
+     [Turso CLI](https://docs.turso.tech/cli/installation), then `turso auth login`.
+  2. `turso db create parkmitter`
+  3. `turso db show parkmitter --url` → copy into `TURSO_DATABASE_URL` (`libsql://...`)
+  4. `turso db tokens create parkmitter` → copy into `TURSO_AUTH_TOKEN`
+  5. Deploy with both vars set; run `npm run seed` once against them to create
+     the schema. `GET /health` reports `{"db":"libsql"}` either way.
+
+Multi-statement writes (booking + host-request creation; host respond →
+booking update + earning insert) run as atomic `client.batch(..., "write")`
+transactions, so a failure can't leave partial state behind.
+
+> **Note:** `src/jsondb.js` (the old JSON-file store that served as an
+> automatic fallback when the better-sqlite3 native module failed to load) is
+> kept in the tree for reference, but it is **no longer wired up** — with
+> libsql there is no native-build failure mode to fall back from, and the
+> `file:` URL *is* the local mode. The old `DB_BACKEND` variable is gone.
 
 ## Auth
 
@@ -66,7 +88,7 @@ All bodies/responses are JSON. Errors return proper status codes with `{"error":
 
 | Method | Path                            | Auth | Description |
 | ------ | ------------------------------- | ---- | ----------- |
-| GET    | `/health`                        | –    | `{ok:true, db:"sqlite"\|"json"}` |
+| GET    | `/health`                        | –    | `{ok:true, db:"libsql"}` |
 | POST   | `/api/auth/request-otp`          | –    | `{phone}` → `{ok:true, devOtp:"123456"}` |
 | POST   | `/api/auth/verify-otp`           | –    | `{phone, otp}` → `{token, user}` (auto-creates user) |
 | GET    | `/api/me`                        | ✓    | Current `User` |
@@ -100,14 +122,16 @@ curl -s http://localhost:4000/api/bookings -H "Authorization: Bearer <token>"
 
 ## Switching to Postgres later
 
-The repository layer is the only thing that touches storage:
+The repository layer is the only thing that touches storage, and it is already
+fully async — so a Postgres port is mechanical:
 
-1. Add a third backend in `src/db.js` (e.g. `createPostgresStore()` using `pg`),
-   implementing the same `all/get/insert/upsert/update/count` primitives —
-   or, better, port the repository functions (`listSpots`, `insertBooking`, …)
-   to real SQL queries for server-side filtering.
+1. Swap the `@libsql/client` calls in `src/db.js` for `pg` queries behind the
+   same async repository functions (`listSpots`, `insertBooking`,
+   `createBookingWithRequest`, `respondToRequest`, …), keeping the
+   `client.batch` write groups as SQL transactions.
 2. Translate the `DDL` statements: `TEXT PRIMARY KEY` → `TEXT PRIMARY KEY`,
    `INTEGER` booleans → `BOOLEAN`, JSON text columns → `JSONB`,
    `REAL` → `DOUBLE PRECISION`/`NUMERIC`.
-3. Point backend selection at `DB_BACKEND=postgres` + `DATABASE_URL`.
-4. Routes and serializers need no changes — they never see the backend.
+3. Select the backend from `DATABASE_URL` instead of `TURSO_DATABASE_URL`.
+4. Routes and serializers need no changes — they already `await` the
+   repository and never see the backend.

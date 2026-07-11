@@ -1,25 +1,50 @@
 "use strict";
 
 /**
- * Storage layer for the Parkmitter API.
+ * Storage layer for the Parkmitter API — built on @libsql/client.
  *
- * Backends (hidden from the rest of the app):
- *   - better-sqlite3 file DB at server/data/parkmitter.db  (preferred)
- *   - JSON file store at server/data/parkmitter.json       (fallback / DB_BACKEND=json)
+ * One client, two modes (selected purely by env):
+ *   - Local dev (no env needed): plain SQLite file at server/data/parkmitter.db
+ *     via the default url "file:data/parkmitter.db".
+ *   - Production: Turso (free cloud SQLite) via TURSO_DATABASE_URL
+ *     (libsql://...) + TURSO_AUTH_TOKEN.
  *
- * Both backends implement the same low-level store interface (see jsondb.js);
- * the repository functions and serializers below are backend-agnostic.
+ * libsql is ASYNC — every repository function here returns a Promise, and the
+ * row → JSON serializers that need extra lookups (toSpot, toBooking) are async
+ * too. Multi-statement writes (booking + host request creation, respond →
+ * booking update + earning insert) run inside client.batch(..., "write") so a
+ * failure can never leave a partial write behind.
+ *
  * Serializers produce JSON that mirrors the app's src/models/types.ts exactly.
+ *
+ * Note: src/jsondb.js (the old JSON-file fallback store) is kept in the repo
+ * for reference but is NO LONGER wired up — the libsql "file:" URL is the
+ * local mode now.
  */
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { createJsonStore } = require("./jsondb");
+const { createClient } = require("@libsql/client");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
-const SQLITE_FILE = path.join(DATA_DIR, "parkmitter.db");
-const JSON_FILE = path.join(DATA_DIR, "parkmitter.json");
+/* ───────────────────────── client ───────────────────────── */
+
+const DB_URL = process.env.TURSO_DATABASE_URL || "file:data/parkmitter.db";
+const IS_FILE_DB = DB_URL.startsWith("file:");
+
+// Local file mode: make sure the parent directory exists (libsql won't create it).
+if (IS_FILE_DB) {
+  const filePath = DB_URL.slice("file:".length).replace(/^\/\//, "").split("?")[0];
+  const dir = path.dirname(filePath);
+  if (dir && dir !== ".") fs.mkdirSync(dir, { recursive: true });
+}
+
+const client = createClient({
+  url: DB_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN || undefined,
+});
+
+const backend = "libsql";
 
 /* ───────────────────────── schema ───────────────────────── */
 
@@ -139,118 +164,127 @@ const DDL = [
   )`,
 ];
 
-/* ───────────────────────── sqlite backend ───────────────────────── */
+/**
+ * Columns added after a table first shipped — applied to pre-existing db
+ * files with "ALTER TABLE ... ADD COLUMN if missing" (the libsql equivalent
+ * of the old PRAGMA-based migration; pragma_table_info works as a plain
+ * SELECT on both local files and Turso).
+ */
+const MIGRATIONS = [
+  { table: "host_requests", column: "requesterPhone", ddl: "ALTER TABLE host_requests ADD COLUMN requesterPhone TEXT" },
+  { table: "host_requests", column: "bookingId", ddl: "ALTER TABLE host_requests ADD COLUMN bookingId TEXT" },
+];
 
-function createSqliteStore(Database) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const sqlite = new Database(SQLITE_FILE);
-  sqlite.pragma("journal_mode = WAL");
-  for (const stmt of DDL) sqlite.exec(stmt);
+let initPromise = null;
 
-  // Lightweight migration for pre-existing db files: add columns that were
-  // introduced after the table was first created.
-  const requestCols = sqlite.prepare("PRAGMA table_info(host_requests)").all().map((c) => c.name);
-  if (!requestCols.includes("requesterPhone")) {
-    sqlite.exec("ALTER TABLE host_requests ADD COLUMN requesterPhone TEXT");
-  }
-
-  const stmtCache = new Map();
-  function prepared(key, sql) {
-    if (!stmtCache.has(key)) stmtCache.set(key, sqlite.prepare(sql));
-    return stmtCache.get(key);
-  }
-
-  function encodeRow(table, row) {
-    const out = {};
-    const jsonCols = JSON_COLUMNS[table] || [];
-    const boolCols = BOOL_COLUMNS[table] || [];
-    for (const col of COLUMNS[table]) {
-      let v = row[col];
-      if (v === undefined) v = null;
-      if (jsonCols.includes(col)) v = JSON.stringify(v == null ? [] : v);
-      else if (boolCols.includes(col)) v = v ? 1 : 0;
-      out[col] = v;
-    }
-    return out;
-  }
-
-  function decodeRow(table, row) {
-    if (!row) return null;
-    const out = { ...row };
-    for (const col of JSON_COLUMNS[table] || []) {
-      try {
-        out[col] = JSON.parse(out[col] || "[]");
-      } catch {
-        out[col] = [];
+/** Create schema + run column migrations. Idempotent; runs once per process. */
+function init() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      if (IS_FILE_DB) {
+        // Same journal mode the old better-sqlite3 backend used. File mode
+        // only — Turso manages its own storage settings.
+        try {
+          await client.execute("PRAGMA journal_mode = WAL");
+        } catch {
+          /* non-fatal */
+        }
       }
+      await client.batch(DDL, "write");
+      for (const m of MIGRATIONS) {
+        const rs = await client.execute({
+          sql: "SELECT name FROM pragma_table_info(?)",
+          args: [m.table],
+        });
+        const names = rs.rows.map((r) => r.name);
+        if (!names.includes(m.column)) await client.execute(m.ddl);
+      }
+    })();
+  }
+  return initPromise;
+}
+
+/* ───────────────────────── row (en|de)coding ───────────────────────── */
+
+function encodeValue(table, col, value) {
+  let v = value === undefined ? null : value;
+  if ((JSON_COLUMNS[table] || []).includes(col)) v = JSON.stringify(v == null ? [] : v);
+  else if ((BOOL_COLUMNS[table] || []).includes(col)) v = v ? 1 : 0;
+  return v;
+}
+
+function decodeRow(table, row) {
+  if (!row) return null;
+  const out = {};
+  for (const col of COLUMNS[table]) out[col] = row[col];
+  for (const col of JSON_COLUMNS[table] || []) {
+    try {
+      out[col] = JSON.parse(out[col] || "[]");
+    } catch {
+      out[col] = [];
     }
-    for (const col of BOOL_COLUMNS[table] || []) out[col] = !!out[col];
-    return out;
   }
+  for (const col of BOOL_COLUMNS[table] || []) out[col] = !!out[col];
+  return out;
+}
 
-  function insertSql(table, orReplace) {
-    const cols = COLUMNS[table];
-    return `INSERT ${orReplace ? "OR REPLACE " : ""}INTO ${table} (${cols.join(", ")}) VALUES (${cols.map((c) => `@${c}`).join(", ")})`;
-  }
-
+/** Full-row INSERT statement ({sql, args}) for client.execute / client.batch. */
+function insertStmt(table, row, orReplace) {
+  const cols = COLUMNS[table];
   return {
-    name: "sqlite",
-
-    all(table) {
-      return prepared(`all:${table}`, `SELECT * FROM ${table}`)
-        .all()
-        .map((r) => decodeRow(table, r));
-    },
-
-    get(table, id) {
-      const row = prepared(`get:${table}`, `SELECT * FROM ${table} WHERE id = ?`).get(id);
-      return decodeRow(table, row);
-    },
-
-    insert(table, row) {
-      prepared(`ins:${table}`, insertSql(table, false)).run(encodeRow(table, row));
-      return this.get(table, row.id);
-    },
-
-    upsert(table, row) {
-      prepared(`ups:${table}`, insertSql(table, true)).run(encodeRow(table, row));
-      return this.get(table, row.id);
-    },
-
-    update(table, id, patch) {
-      const existing = this.get(table, id);
-      if (!existing) return null;
-      const merged = encodeRow(table, { ...existing, ...patch, id });
-      prepared(`ups:${table}`, insertSql(table, true)).run(merged);
-      return this.get(table, id);
-    },
-
-    count(table) {
-      return prepared(`cnt:${table}`, `SELECT COUNT(*) AS n FROM ${table}`).get().n;
-    },
+    sql: `INSERT ${orReplace ? "OR REPLACE " : ""}INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+    args: cols.map((c) => encodeValue(table, c, row[c])),
   };
 }
 
-/* ───────────────────────── backend selection ───────────────────────── */
-
-function pickStore() {
-  const forced = (process.env.DB_BACKEND || "").toLowerCase();
-  if (forced !== "json") {
-    try {
-      const Database = require("better-sqlite3");
-      const probe = new Database(":memory:"); // smoke-test the native binding
-      probe.close();
-      return createSqliteStore(Database);
-    } catch (err) {
-      if (forced === "sqlite") throw err;
-      console.warn(`[db] better-sqlite3 unavailable (${err.message.split("\n")[0]}) — using JSON file store.`);
-    }
-  }
-  return createJsonStore(JSON_FILE, Object.keys(COLUMNS));
+/** Partial UPDATE statement ({sql, args}) from a patch object. */
+function updateStmt(table, id, patch) {
+  const cols = COLUMNS[table].filter((c) => c !== "id" && patch[c] !== undefined);
+  return {
+    sql: `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`,
+    args: [...cols.map((c) => encodeValue(table, c, patch[c])), id],
+  };
 }
 
-const store = pickStore();
-const backend = store.name; // "sqlite" | "json"
+/* ───────────────────────── low-level store ───────────────────────── */
+
+async function allRows(table) {
+  await init();
+  const rs = await client.execute(`SELECT * FROM ${table}`);
+  return rs.rows.map((r) => decodeRow(table, r));
+}
+
+async function getRow(table, id) {
+  await init();
+  const rs = await client.execute({ sql: `SELECT * FROM ${table} WHERE id = ?`, args: [id] });
+  return decodeRow(table, rs.rows[0]);
+}
+
+async function insertRow(table, row) {
+  await init();
+  await client.execute(insertStmt(table, row, false));
+  return getRow(table, row.id);
+}
+
+async function upsertRow(table, row) {
+  await init();
+  await client.execute(insertStmt(table, row, true));
+  return getRow(table, row.id);
+}
+
+async function updateRow(table, id, patch) {
+  await init();
+  const existing = await getRow(table, id);
+  if (!existing) return null;
+  await client.execute(updateStmt(table, id, patch));
+  return getRow(table, id);
+}
+
+async function countTable(table) {
+  await init();
+  const rs = await client.execute(`SELECT COUNT(*) AS n FROM ${table}`);
+  return Number(rs.rows[0].n);
+}
 
 /* ───────────────────────── helpers ───────────────────────── */
 
@@ -307,10 +341,10 @@ function toUser(userRow) {
   };
 }
 
-/** spots row -> ParkingSpot (types.ts) with host embedded */
-function toSpot(row) {
+/** spots row -> ParkingSpot (types.ts) with host embedded. ASYNC (host lookup). */
+async function toSpot(row) {
   if (!row) return null;
-  const host = toHost(store.get("users", row.hostId));
+  const host = toHost(await getRow("users", row.hostId));
   return {
     id: row.id,
     title: row.title,
@@ -342,7 +376,7 @@ function toSpot(row) {
 }
 
 /**
- * bookings row -> Booking (types.ts) with spot embedded.
+ * bookings row -> Booking (types.ts) with spot embedded. ASYNC (spot/host lookups).
  * Also carries the contract's `time` and `totalAmount` fields (additive;
  * `amount` === `totalAmount`, `startTime`/`endTime` derive from `time`).
  *
@@ -350,18 +384,18 @@ function toSpot(row) {
  * has accepted the request (`contactUnlocked`). Before that it is null —
  * the phone must never leak to the driver pre-acceptance.
  */
-function toBooking(row) {
+async function toBooking(row) {
   if (!row) return null;
-  const spotRow = store.get("spots", row.spotId);
+  const spotRow = await getRow("spots", row.spotId);
   let hostPhone = null;
   if (row.contactUnlocked && spotRow) {
-    const hostUser = store.get("users", spotRow.hostId);
+    const hostUser = await getRow("users", spotRow.hostId);
     hostPhone = (hostUser && hostUser.phone) || null;
   }
   const booking = {
     id: row.id,
     spotId: row.spotId,
-    spot: spotRow ? toSpot(spotRow) : null,
+    spot: spotRow ? await toSpot(spotRow) : null,
     userId: row.userId,
     vehicleType: row.vehicleType,
     vehicleNumber: row.vehicleNumber,
@@ -412,17 +446,18 @@ function toEarning(row) {
 
 /* ───────────────────────── repository: users ───────────────────────── */
 
-function getUserById(id) {
-  return store.get("users", id);
+async function getUserById(id) {
+  return getRow("users", id);
 }
 
-function findUserByPhone(phone) {
+async function findUserByPhone(phone) {
   const target = normalizePhone(phone);
   if (!target) return null;
-  return store.all("users").find((u) => normalizePhone(u.phone) === target) || null;
+  const users = await allRows("users");
+  return users.find((u) => normalizePhone(u.phone) === target) || null;
 }
 
-function createUser({ phone, name }) {
+async function createUser({ phone, name }) {
   const row = {
     id: genId("u"),
     phone: String(phone).trim(),
@@ -434,88 +469,121 @@ function createUser({ phone, name }) {
     responseTime: "within an hour",
     createdAt: new Date().toISOString(),
   };
-  return store.insert("users", row);
+  return insertRow("users", row);
 }
 
 /* ───────────────────────── repository: spots ───────────────────────── */
 
-function listSpots() {
-  return store.all("spots");
+async function listSpots() {
+  return allRows("spots");
 }
 
-function getSpotRow(id) {
-  return store.get("spots", id);
+async function getSpotRow(id) {
+  return getRow("spots", id);
 }
 
-function listSpotsByHost(hostId) {
-  return store
-    .all("spots")
-    .filter((s) => s.hostId === hostId)
-    .sort(sortByDateDesc("createdAt"));
+async function listSpotsByHost(hostId) {
+  const spots = await allRows("spots");
+  return spots.filter((s) => s.hostId === hostId).sort(sortByDateDesc("createdAt"));
 }
 
-function insertSpot(row) {
-  return store.insert("spots", row);
+async function insertSpot(row) {
+  return insertRow("spots", row);
 }
 
 /* ───────────────────────── repository: bookings ───────────────────────── */
 
-function listBookingsByUser(userId) {
-  return store
-    .all("bookings")
-    .filter((b) => b.userId === userId)
-    .sort(sortByDateDesc("createdAt"));
+async function listBookingsByUser(userId) {
+  const bookings = await allRows("bookings");
+  return bookings.filter((b) => b.userId === userId).sort(sortByDateDesc("createdAt"));
 }
 
-function getBookingRow(id) {
-  return store.get("bookings", id);
+async function getBookingRow(id) {
+  return getRow("bookings", id);
 }
 
-function insertBooking(row) {
-  return store.insert("bookings", row);
+async function insertBooking(row) {
+  return insertRow("bookings", row);
 }
 
-function updateBooking(id, patch) {
-  return store.update("bookings", id, patch);
+async function updateBooking(id, patch) {
+  return updateRow("bookings", id, patch);
+}
+
+/**
+ * Create a booking AND its pending host request atomically (one write batch —
+ * either both rows land or neither does). Returns the stored booking row.
+ */
+async function createBookingWithRequest(bookingRow, requestRow) {
+  await init();
+  await client.batch(
+    [insertStmt("bookings", bookingRow, false), insertStmt("host_requests", requestRow, false)],
+    "write"
+  );
+  return getRow("bookings", bookingRow.id);
 }
 
 /* ───────────────────────── repository: host requests ───────────────────────── */
 
-function listRequestsByHost(hostId) {
-  return store
-    .all("host_requests")
-    .filter((r) => r.hostId === hostId)
-    .sort(sortByDateDesc("date"));
+async function listRequestsByHost(hostId) {
+  const requests = await allRows("host_requests");
+  return requests.filter((r) => r.hostId === hostId).sort(sortByDateDesc("date"));
 }
 
-function getRequestRow(id) {
-  return store.get("host_requests", id);
+async function getRequestRow(id) {
+  return getRow("host_requests", id);
 }
 
-function insertRequest(row) {
-  return store.insert("host_requests", row);
+async function insertRequest(row) {
+  return insertRow("host_requests", row);
 }
 
-function updateRequest(id, patch) {
-  return store.update("host_requests", id, patch);
+async function updateRequest(id, patch) {
+  return updateRow("host_requests", id, patch);
+}
+
+/**
+ * Apply a host's accept/decline atomically (one write batch):
+ *   - request status -> "accepted" | "declined"
+ *   - linked booking (when it exists) -> "confirmed" + contactUnlocked on
+ *     accept, "cancelled" on decline
+ *   - optional earning row insert (accept only; caller builds it)
+ * Partial writes can't happen — all statements commit or none do.
+ * Returns the updated host_requests row.
+ */
+async function respondToRequest(requestRow, accept, earningRow) {
+  await init();
+  const stmts = [
+    updateStmt("host_requests", requestRow.id, { status: accept ? "accepted" : "declined" }),
+  ];
+  if (requestRow.bookingId && (await getRow("bookings", requestRow.bookingId))) {
+    stmts.push(
+      updateStmt(
+        "bookings",
+        requestRow.bookingId,
+        accept ? { status: "confirmed", contactUnlocked: true } : { status: "cancelled" }
+      )
+    );
+  }
+  if (earningRow) stmts.push(insertStmt("earnings", earningRow, false));
+  await client.batch(stmts, "write");
+  return getRow("host_requests", requestRow.id);
 }
 
 /* ───────────────────────── repository: earnings / wallet ───────────────────────── */
 
-function listEarningsByUser(userId) {
-  return store
-    .all("earnings")
-    .filter((e) => e.userId === userId)
-    .sort(sortByDateDesc("date"));
+async function listEarningsByUser(userId) {
+  const earnings = await allRows("earnings");
+  return earnings.filter((e) => e.userId === userId).sort(sortByDateDesc("date"));
 }
 
-function insertEarning(row) {
-  return store.insert("earnings", row);
+async function insertEarning(row) {
+  return insertRow("earnings", row);
 }
 
 /** WalletSummary exactly as typed in models/types.ts. */
-function walletSummary(userId) {
-  const entries = listEarningsByUser(userId);
+async function walletSummary(userId) {
+  const entries = await listEarningsByUser(userId);
   const savings = entries.filter((e) => e.kind === "saving");
   const earnings = entries.filter((e) => e.kind === "earning");
   const cutoff = new Date();
@@ -535,18 +603,19 @@ function walletSummary(userId) {
 
 /* ───────────────────────── seed support ───────────────────────── */
 
-const upsertUser = (row) => store.upsert("users", row);
-const upsertSpot = (row) => store.upsert("spots", row);
-const upsertBooking = (row) => store.upsert("bookings", row);
-const upsertRequest = (row) => store.upsert("host_requests", row);
-const upsertEarning = (row) => store.upsert("earnings", row);
-const countRows = (table) => store.count(table);
+const upsertUser = (row) => upsertRow("users", row);
+const upsertSpot = (row) => upsertRow("spots", row);
+const upsertBooking = (row) => upsertRow("bookings", row);
+const upsertRequest = (row) => upsertRow("host_requests", row);
+const upsertEarning = (row) => upsertRow("earnings", row);
+const countRows = (table) => countTable(table);
 
 module.exports = {
   backend,
+  init,
   genId,
   normalizePhone,
-  // serializers
+  // serializers (toSpot/toBooking are async)
   toHost,
   toUser,
   toSpot,
@@ -567,11 +636,13 @@ module.exports = {
   getBookingRow,
   insertBooking,
   updateBooking,
+  createBookingWithRequest,
   // host requests
   listRequestsByHost,
   getRequestRow,
   insertRequest,
   updateRequest,
+  respondToRequest,
   // earnings / wallet
   listEarningsByUser,
   insertEarning,

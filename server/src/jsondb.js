@@ -1,11 +1,15 @@
 "use strict";
 
 /**
- * Tiny JSON-file data store — the drop-in fallback backend used when
- * better-sqlite3 cannot be installed (native build/download failures).
+ * Tiny JSON-file data store.
  *
- * It exposes the exact same low-level store interface that src/db.js builds
- * its repository functions on top of:
+ * HISTORICAL / UNWIRED: this was the automatic fallback backend when the
+ * better-sqlite3 native module could not be installed. src/db.js now runs on
+ * @libsql/client (Turso in production, a local SQLite file otherwise), which
+ * has no native-build failure mode — so nothing requires this module anymore.
+ * It is kept for reference only (see README "Storage").
+ *
+ * It exposes the low-level store interface the old db.js was built on:
  *
  *   all(table)            -> row[]           (deep copies)
  *   get(table, id)        -> row | null
