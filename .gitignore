@@ -33,3 +33,24 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Local Android SDK + emulator (multi-GB, machine-specific — never push)
+android-sdk/
+cmdline-tools.zip
+ExpoGo-*.apk
+
+# Native project folders (managed workflow — EAS regenerates them)
+android/
+ios/
+
+# Server local state (DB + secrets stay off GitHub)
+server/node_modules/
+server/data/
+server/server.log
+server/server-err.log
+server/.env
+server/cloudflared.exe
+
+# Misc
+metro.log
+*.log

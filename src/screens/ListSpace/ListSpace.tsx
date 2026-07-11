@@ -1,15 +1,17 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   Image,
-  Switch,
+  ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import * as Location from "expo-location";
 
 import { Screen } from "@/components/ui/Screen";
 import { Header } from "@/components/ui/Header";
@@ -17,251 +19,200 @@ import { Input } from "@/components/ui/Input";
 import { Chip } from "@/components/ui/Chip";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { SectionHeader } from "@/components/ui/SectionHeader";
+import { MapPicker } from "@/components/ui/MapPicker";
+import type { PickerLandmark } from "@/components/ui/LiveMap.shared";
 import { SuccessCheck } from "@/components/illustrations/SuccessCheck";
 import { useTheme } from "@/theme/ThemeContext";
 import { useToast } from "@/components/ui/Toast";
+import { useAsync } from "@/hooks/useAsync";
+import { useDebounce } from "@/hooks/useDebounce";
 import { haptics } from "@/utils/haptics";
-import { formatCurrency, formatTime } from "@/utils/format";
+import { formatCurrency } from "@/utils/format";
 import { hostService, type CreateListingPayload } from "@/services/hostService";
-import { genId } from "@/services/mockClient";
-import {
-  STATIONS,
-  SPOT_TYPE_OPTIONS,
-  VEHICLE_OPTIONS,
-  AMENITY_OPTIONS,
-  type SpotTypeId,
-  type VehicleId,
-} from "@/constants";
+import { placesService, type Place } from "@/services/placesService";
+import { SPOT_TYPE_OPTIONS, type SpotTypeId } from "@/constants";
 import type { ParkingSpot } from "@/models/types";
 
-const TIME_SLOTS = [
-  "00:00",
-  "06:00",
-  "07:00",
-  "08:00",
-  "09:00",
-  "10:00",
-  "12:00",
-  "14:00",
-  "18:00",
-  "20:00",
-  "22:00",
-  "23:59",
-];
+/** Gurugram centre — where the map starts before a location is chosen. */
+const DEFAULT_CENTER = { latitude: 28.4595, longitude: 77.0266 };
 
-type Errors = Partial<
-  Record<
-    | "title"
-    | "type"
-    | "vehicleTypes"
-    | "address"
-    | "area"
-    | "station"
-    | "price"
-    | "photos",
-    string
-  >
->;
-
-interface SectionCardProps {
-  step: number;
-  title: string;
-  children: React.ReactNode;
-  index: number;
+interface Picked {
+  latitude: number;
+  longitude: number;
+  label: string;
 }
 
-function SectionCard({ step, title, children, index }: SectionCardProps) {
-  const { colors, spacing, typography, radius } = useTheme();
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: 14 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: "timing", duration: 340, delay: index * 60 }}
-      style={{ marginBottom: spacing.lg }}
-    >
-      <Card elevated>
-        <View style={[styles.sectionHead, { marginBottom: spacing.md }]}>
-          <View
-            style={[
-              styles.stepDot,
-              { backgroundColor: colors.primaryLight, borderRadius: radius.pill },
-            ]}
-          >
-            <Text
-              style={{
-                color: colors.primary,
-                fontFamily: typography.fonts.bodySemi,
-                fontSize: typography.sizes.sm,
-              }}
-            >
-              {step}
-            </Text>
-          </View>
-          <Text
-            style={{
-              marginLeft: spacing.sm,
-              color: colors.text,
-              fontFamily: typography.fonts.heading,
-              fontSize: typography.sizes.md,
-            }}
-          >
-            {title}
-          </Text>
-        </View>
-        {children}
-      </Card>
-    </MotiView>
-  );
-}
-
-function FieldError({ message }: { message?: string }) {
-  const { colors, typography, spacing } = useTheme();
-  if (!message) return null;
-  return (
-    <View style={[styles.errRow, { marginTop: spacing.xs }]}>
-      <Ionicons name="alert-circle" size={13} color={colors.error} />
-      <Text
-        style={{
-          marginLeft: 4,
-          color: colors.error,
-          fontFamily: typography.fonts.body,
-          fontSize: typography.sizes.xs,
-        }}
-      >
-        {message}
-      </Text>
-    </View>
-  );
+/** Short, human label from a place (drops the trailing region detail). */
+function fullLabel(p: Place): string {
+  return p.label ? `${p.name} · ${p.label}` : p.name;
 }
 
 export default function ListSpace() {
   const navigation = useNavigation<any>();
   const toast = useToast();
-  const { colors, spacing, typography, radius, gradients } = useTheme();
+  const { colors, spacing, typography, radius } = useTheme();
 
-  // form state
+  // --- location (the only mandatory input) ---
+  const [query, setQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const [locating, setLocating] = useState(false);
+  const debouncedQuery = useDebounce(query, 350);
+
+  // --- optional details ---
+  const [type, setType] = useState<SpotTypeId>("home");
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<SpotTypeId | null>(null);
-  const [vehicleTypes, setVehicleTypes] = useState<VehicleId[]>([]);
   const [address, setAddress] = useState("");
-  const [area, setArea] = useState("");
-  const [landmark, setLandmark] = useState("");
-  const [station, setStation] = useState<string | null>(null);
-  const [availableFrom, setAvailableFrom] = useState("08:00");
-  const [availableTo, setAvailableTo] = useState("20:00");
-  const [pickingFrom, setPickingFrom] = useState(false);
-  const [pickingTo, setPickingTo] = useState(false);
   const [price, setPrice] = useState("");
-  const [isFree, setIsFree] = useState(false);
-  const [amenities, setAmenities] = useState<string[]>([]);
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [instructions, setInstructions] = useState("");
 
-  const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<ParkingSpot | null>(null);
 
-  const clearErr = (key: keyof Errors) =>
-    setErrors((prev) => {
-      if (!prev[key]) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
+  // Real place suggestions for the search box (free Photon geocoding).
+  const placeResults = useAsync<Place[]>(
+    () => placesService.search(debouncedQuery),
+    [debouncedQuery]
+  );
 
-  const toggleVehicle = (id: VehicleId) => {
+  // Real landmarks around the current map centre (free Photon reverse).
+  const nearbyResults = useAsync<Place[]>(
+    () => placesService.nearby(mapCenter.latitude, mapCenter.longitude, 8),
+    [mapCenter.latitude, mapCenter.longitude]
+  );
+
+  const landmarks = useMemo<PickerLandmark[]>(
+    () =>
+      (nearbyResults.data ?? []).map((p) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+        label: p.name,
+      })),
+    [nearbyResults.data]
+  );
+
+  const onChangeQuery = useCallback((t: string) => {
+    setQuery(t);
+    setShowSuggestions(true);
+  }, []);
+
+  // Pick from the search dropdown → recenter the map + set the spot.
+  const onSelectPlace = useCallback((place: Place) => {
     haptics.selection();
-    setVehicleTypes((prev) =>
-      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
-    );
-    clearErr("vehicleTypes");
-  };
+    const label = fullLabel(place);
+    setMapCenter({ latitude: place.latitude, longitude: place.longitude });
+    setPicked({ latitude: place.latitude, longitude: place.longitude, label });
+    setQuery(place.name);
+    setShowSuggestions(false);
+    setAddress((prev) => (prev && prev.trim() ? prev : label));
+  }, []);
 
-  const toggleAmenity = (label: string) => {
+  // Tap a nearby-landmark chip → recenter + set the spot.
+  const onSelectLandmark = useCallback((place: Place) => {
     haptics.selection();
-    setAmenities((prev) =>
-      prev.includes(label)
-        ? prev.filter((a) => a !== label)
-        : [...prev, label]
-    );
-  };
+    const label = fullLabel(place);
+    setMapCenter({ latitude: place.latitude, longitude: place.longitude });
+    setPicked({ latitude: place.latitude, longitude: place.longitude, label });
+    setAddress((prev) => (prev && prev.trim() ? prev : label));
+  }, []);
 
-  const addPhoto = () => {
-    if (photos.length >= 6) {
-      toast.show("You can add up to 6 photos.", "warning");
-      return;
-    }
-    haptics.light();
-    const seed = genId("photo");
-    setPhotos((prev) => [
-      ...prev,
-      `https://picsum.photos/seed/pm-${seed}/800/520`,
-    ]);
-    clearErr("photos");
-  };
+  // Tap the map / drag the pin / tap a landmark pin.
+  const onPickFromMap = useCallback(
+    (lat: number, lng: number, label?: string | null) => {
+      haptics.selection();
+      setPicked({ latitude: lat, longitude: lng, label: label ?? "Pinned location" });
+      if (!label) {
+        // Reverse-geocode the dropped pin to name it + auto-fill address.
+        placesService
+          .reverse(lat, lng)
+          .then((place) => {
+            if (!place) return;
+            const label2 = fullLabel(place);
+            setPicked((prev) =>
+              prev && prev.latitude === lat && prev.longitude === lng
+                ? { ...prev, label: label2 }
+                : prev
+            );
+            setAddress((prev) => (prev && prev.trim() ? prev : label2));
+          })
+          .catch(() => {});
+      }
+    },
+    []
+  );
 
-  const removePhoto = (uri: string) => {
-    haptics.light();
-    setPhotos((prev) => prev.filter((p) => p !== uri));
-  };
-
-  const priceNumber = useMemo(() => {
-    const n = parseInt(price.replace(/[^0-9]/g, ""), 10);
-    return isNaN(n) ? 0 : n;
-  }, [price]);
-
-  const validate = (): boolean => {
-    const next: Errors = {};
-    if (title.trim().length < 4) {
-      next.title = "Give your space a clear title (min 4 characters).";
+  const useMyLocation = useCallback(async () => {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        toast.show(
+          "Location permission is needed to use your current spot.",
+          "warning"
+        );
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      haptics.success();
+      setMapCenter({ latitude: lat, longitude: lng });
+      setPicked({ latitude: lat, longitude: lng, label: "Your current location" });
+      setShowSuggestions(false);
+      const place = await placesService.reverse(lat, lng);
+      if (place) {
+        const label = fullLabel(place);
+        setPicked((prev) => (prev ? { ...prev, label } : prev));
+        setAddress((prev) => (prev && prev.trim() ? prev : label));
+      }
+    } catch (e: any) {
+      toast.show(e?.message ?? "Couldn't get your location.", "error");
+    } finally {
+      setLocating(false);
     }
-    if (!type) next.type = "Select a parking type.";
-    if (vehicleTypes.length === 0) {
-      next.vehicleTypes = "Pick at least one vehicle type.";
-    }
-    if (address.trim().length < 6) {
-      next.address = "Enter the full address of your space.";
-    }
-    if (area.trim().length < 2) {
-      next.area = "Enter the area or sector.";
-    }
-    if (!station) next.station = "Choose the nearest station.";
-    if (!isFree && priceNumber <= 0) {
-      next.price = "Enter a price per day, or offer it for free.";
-    }
-    if (photos.length === 0) {
-      next.photos = "Add at least one photo of your space.";
-    }
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  };
+  }, [toast]);
 
   const handlePublish = async () => {
-    if (!validate()) {
+    if (!picked) {
       haptics.error();
-      toast.show("Please fix the highlighted fields.", "error");
+      toast.show("Pick your parking location on the map first.", "error");
       return;
     }
     setSubmitting(true);
     try {
-      const perDay = isFree ? 0 : priceNumber;
+      const shortLabel = (picked.label || query || "")
+        .split(" · ")[0]
+        .split(",")[0]
+        .trim();
+      const typeLabel =
+        SPOT_TYPE_OPTIONS.find((o) => o.id === type)?.label ?? "Parking";
+      const autoTitle = `${typeLabel} parking${
+        shortLabel ? ` near ${shortLabel}` : ""
+      }`;
+      const priceNum = parseInt(price.replace(/[^0-9]/g, ""), 10);
+      const hasPrice = !isNaN(priceNum) && priceNum > 0;
+
       const payload: CreateListingPayload = {
-        title: title.trim(),
-        type: type as SpotTypeId,
-        vehicleTypes,
+        title: title.trim() || autoTitle,
+        type,
+        vehicleTypes: ["car"],
         address: address.trim(),
-        area: area.trim(),
-        landmark: landmark.trim(),
-        nearStation: station as string,
-        pricePerHour: isFree ? 0 : Math.max(10, Math.round(perDay / 6)),
-        pricePerDay: perDay,
-        isFree,
-        amenities,
-        availableFrom,
-        availableTo,
-        instructions: instructions.trim(),
-        images: photos,
+        area: shortLabel,
+        landmark:
+          picked.label && picked.label !== "Pinned location" ? picked.label : "",
+        nearStation: shortLabel,
+        latitude: picked.latitude,
+        longitude: picked.longitude,
+        pricePerHour: hasPrice ? Math.max(10, Math.round(priceNum / 6)) : 0,
+        pricePerDay: hasPrice ? priceNum : 0,
+        isFree: !hasPrice,
+        amenities: [],
+        availableFrom: "08:00",
+        availableTo: "20:00",
+        instructions: "",
+        images: [],
       };
       const listing = await hostService.createListing(payload);
       haptics.success();
@@ -274,7 +225,15 @@ export default function ListSpace() {
     }
   };
 
-  // ---- Success confirmation view ----
+  const fieldLabel = {
+    color: colors.textSecondary,
+    fontFamily: typography.fonts.bodyMedium,
+    fontSize: typography.sizes.sm,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  } as const;
+
+  // ---- Success confirmation ----
   if (created) {
     return (
       <Screen scroll padded>
@@ -285,7 +244,7 @@ export default function ListSpace() {
           transition={{ type: "spring", damping: 14, stiffness: 180 }}
           style={{ alignItems: "center", marginTop: spacing.huge }}
         >
-          <SuccessCheck size={170} color={colors.success} />
+          <SuccessCheck size={160} color={colors.success} />
           <Text
             style={{
               color: colors.text,
@@ -308,8 +267,8 @@ export default function ListSpace() {
               paddingHorizontal: spacing.md,
             }}
           >
-            "{created.title}" is now listed on Parkmitter. Drivers nearby can find
-            and request it right away.
+            "{created.title}" is now on the map. Drivers nearby can find and
+            request it right away.
           </Text>
         </MotiView>
 
@@ -332,16 +291,6 @@ export default function ListSpace() {
                 }}
               >
                 {created.title}
-              </Text>
-              <Text
-                style={{
-                  color: colors.textSecondary,
-                  fontFamily: typography.fonts.body,
-                  fontSize: typography.sizes.sm,
-                  marginTop: 2,
-                }}
-              >
-                Near {created.nearStation}
               </Text>
               <Text
                 style={{
@@ -378,31 +327,282 @@ export default function ListSpace() {
     );
   }
 
-  // ---- Form view ----
+  // ---- Form ----
+  const suggestions = placeResults.data ?? [];
+  const showPanel = query.trim().length >= 2 && showSuggestions;
+
   return (
     <Screen scroll padded>
       <Header
         showBack
         title="List your space"
-        subtitle="Earn from your empty parking"
+        subtitle="Just pin your location — that's the only must."
         onBack={() => navigation.goBack()}
       />
 
-      {/* 1. Basics */}
-      <SectionCard step={1} title="The basics" index={0}>
-        <Input
-          label="Spot title"
-          value={title}
-          onChangeText={(t) => {
-            setTitle(t);
-            clearErr("title");
+      {/* Location (mandatory) */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <Text
+          style={{
+            color: colors.text,
+            fontFamily: typography.fonts.heading,
+            fontSize: typography.sizes.md,
+            marginBottom: spacing.sm,
           }}
-          placeholder="e.g. Secure Driveway near Huda City Centre"
-          maxLength={60}
-          error={errors.title}
+        >
+          Where is your parking?
+        </Text>
+
+        <Input
+          label="Search a city, town, station or area"
+          value={query}
+          onChangeText={onChangeQuery}
+          placeholder="e.g. Baraut, Huda City Centre, Sector 29…"
+          iconLeft={<Ionicons name="search" size={18} color={colors.textMuted} />}
         />
 
-        <Text style={[styles.fieldLabel, labelStyle(colors, typography, spacing)]}>
+        {/* Real place suggestions */}
+        {showPanel ? (
+          <View
+            style={[
+              styles.panel,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                borderRadius: radius.md,
+                marginTop: spacing.xs,
+              },
+            ]}
+          >
+            {placeResults.loading ? (
+              <View style={styles.panelLoading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text
+                  style={{
+                    marginLeft: spacing.sm,
+                    color: colors.textSecondary,
+                    fontFamily: typography.fonts.body,
+                    fontSize: typography.sizes.sm,
+                  }}
+                >
+                  Finding places…
+                </Text>
+              </View>
+            ) : suggestions.length > 0 ? (
+              suggestions.map((place) => (
+                <Pressable
+                  key={place.id}
+                  onPress={() => onSelectPlace(place)}
+                  style={({ pressed }) => [
+                    styles.panelRow,
+                    {
+                      borderBottomColor: colors.border,
+                      backgroundColor: pressed ? colors.surfaceAlt : "transparent",
+                    },
+                  ]}
+                >
+                  <Ionicons name="location-outline" size={18} color={colors.primary} />
+                  <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: colors.text,
+                        fontFamily: typography.fonts.bodyMedium,
+                        fontSize: typography.sizes.sm,
+                      }}
+                    >
+                      {place.name}
+                    </Text>
+                    {place.label ? (
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: colors.textMuted,
+                          fontFamily: typography.fonts.body,
+                          fontSize: typography.sizes.xs,
+                          marginTop: 1,
+                        }}
+                      >
+                        {place.label}
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              ))
+            ) : (
+              <Text
+                style={{
+                  padding: spacing.md,
+                  color: colors.textMuted,
+                  fontFamily: typography.fonts.body,
+                  fontSize: typography.sizes.sm,
+                }}
+              >
+                No matching places. Try a nearby town or landmark.
+              </Text>
+            )}
+          </View>
+        ) : null}
+
+        {/* Use my location */}
+        <Button
+          label={locating ? "Getting your location…" : "Use my current location"}
+          variant="outline"
+          fullWidth
+          loading={locating}
+          onPress={useMyLocation}
+          iconLeft={<Ionicons name="locate" size={18} color={colors.primary} />}
+          style={{ marginTop: spacing.md }}
+        />
+
+        {/* Interactive map */}
+        <View style={{ marginTop: spacing.md }}>
+          <MapPicker
+            center={mapCenter}
+            landmarks={landmarks}
+            onPick={onPickFromMap}
+            height={280}
+          />
+        </View>
+        <Text
+          style={{
+            color: colors.textMuted,
+            fontFamily: typography.fonts.body,
+            fontSize: typography.sizes.xs,
+            marginTop: spacing.xs,
+            textAlign: "center",
+          }}
+        >
+          Tap the map or drag the pin to set your exact spot.
+        </Text>
+
+        {/* Nearby landmarks */}
+        {landmarks.length > 0 ? (
+          <>
+            <Text style={fieldLabel}>Nearby landmarks — tap to pick</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingRight: spacing.md }}
+            >
+              {(nearbyResults.data ?? []).map((place) => (
+                <Pressable
+                  key={place.id}
+                  onPress={() => onSelectLandmark(place)}
+                  style={({ pressed }) => [
+                    styles.lmChip,
+                    {
+                      backgroundColor: pressed ? colors.primaryLight : colors.surfaceAlt,
+                      borderColor: colors.border,
+                      borderRadius: radius.pill,
+                      marginRight: spacing.sm,
+                    },
+                  ]}
+                >
+                  <Ionicons name="pin" size={13} color={colors.primary} />
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      marginLeft: 5,
+                      maxWidth: 150,
+                      color: colors.text,
+                      fontFamily: typography.fonts.bodyMedium,
+                      fontSize: typography.sizes.xs,
+                    }}
+                  >
+                    {place.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        ) : null}
+
+        {/* Selected confirmation */}
+        {picked ? (
+          <View
+            style={[
+              styles.pickedBox,
+              {
+                backgroundColor: colors.primaryLight,
+                borderRadius: radius.md,
+                marginTop: spacing.md,
+              },
+            ]}
+          >
+            <Ionicons name="location" size={20} color={colors.primary} />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  fontFamily: typography.fonts.bodyMedium,
+                  fontSize: typography.sizes.xs,
+                }}
+              >
+                Selected location
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={{
+                  color: colors.text,
+                  fontFamily: typography.fonts.bodySemi,
+                  fontSize: typography.sizes.sm,
+                  marginTop: 1,
+                }}
+              >
+                {picked.label}
+              </Text>
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontFamily: typography.fonts.body,
+                  fontSize: typography.sizes.xs,
+                  marginTop: 1,
+                }}
+              >
+                {picked.latitude.toFixed(5)}, {picked.longitude.toFixed(5)}
+              </Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={22} color={colors.success} />
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.hintBox,
+              {
+                backgroundColor: colors.surfaceAlt,
+                borderRadius: radius.md,
+                marginTop: spacing.md,
+              },
+            ]}
+          >
+            <Ionicons name="hand-left-outline" size={18} color={colors.textMuted} />
+            <Text
+              style={{
+                marginLeft: spacing.sm,
+                flex: 1,
+                color: colors.textSecondary,
+                fontFamily: typography.fonts.body,
+                fontSize: typography.sizes.sm,
+              }}
+            >
+              Search, use your location, tap a landmark, or tap the map to set
+              your spot.
+            </Text>
+          </View>
+        )}
+      </Card>
+
+      {/* Parking type (quick) */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <Text
+          style={{
+            color: colors.text,
+            fontFamily: typography.fonts.heading,
+            fontSize: typography.sizes.md,
+            marginBottom: spacing.sm,
+          }}
+        >
           Parking type
         </Text>
         <View style={styles.chipWrap}>
@@ -412,8 +612,8 @@ export default function ListSpace() {
                 label={opt.label}
                 selected={type === opt.id}
                 onPress={() => {
+                  haptics.selection();
                   setType(opt.id);
-                  clearErr("type");
                 }}
                 icon={
                   <Ionicons
@@ -426,377 +626,69 @@ export default function ListSpace() {
             </View>
           ))}
         </View>
-        <FieldError message={errors.type} />
+      </Card>
 
-        <Text style={[styles.fieldLabel, labelStyle(colors, typography, spacing)]}>
-          Vehicle types accepted
-        </Text>
-        <View style={styles.chipWrap}>
-          {VEHICLE_OPTIONS.map((opt) => {
-            const selected = vehicleTypes.includes(opt.id);
-            return (
-              <View key={opt.id} style={styles.chipItem}>
-                <Chip
-                  label={opt.label}
-                  selected={selected}
-                  onPress={() => toggleVehicle(opt.id)}
-                  icon={
-                    <Ionicons
-                      name={opt.icon as any}
-                      size={15}
-                      color={selected ? colors.white : colors.textSecondary}
-                    />
-                  }
-                />
-              </View>
-            );
-          })}
+      {/* Optional details */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <View style={styles.optionalHead}>
+          <Text
+            style={{
+              color: colors.text,
+              fontFamily: typography.fonts.heading,
+              fontSize: typography.sizes.md,
+            }}
+          >
+            A few more details
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+            }}
+          >
+            optional
+          </Text>
         </View>
-        <FieldError message={errors.vehicleTypes} />
-      </SectionCard>
 
-      {/* 2. Location */}
-      <SectionCard step={2} title="Location" index={1}>
         <Input
-          label="Full address"
+          label="Title"
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Auto-filled from your location if left blank"
+          maxLength={60}
+        />
+        <View style={{ height: spacing.md }} />
+        <Input
+          label="Address"
           value={address}
-          onChangeText={(t) => {
-            setAddress(t);
-            clearErr("address");
-          }}
-          placeholder="House / tower, block, sector"
-          iconLeft={<Ionicons name="location-outline" size={18} color={colors.textMuted} />}
-          error={errors.address}
+          onChangeText={setAddress}
+          placeholder="House / tower, block (optional)"
+          iconLeft={
+            <Ionicons name="home-outline" size={18} color={colors.textMuted} />
+          }
         />
         <View style={{ height: spacing.md }} />
         <Input
-          label="Area / sector"
-          value={area}
-          onChangeText={(t) => {
-            setArea(t);
-            clearErr("area");
-          }}
-          placeholder="e.g. Sector 29"
-          error={errors.area}
-        />
-        <View style={{ height: spacing.md }} />
-        <Input
-          label="Landmark (optional)"
-          value={landmark}
-          onChangeText={setLandmark}
-          placeholder="e.g. Behind Leisure Valley Park"
-        />
-
-        <Text style={[styles.fieldLabel, labelStyle(colors, typography, spacing)]}>
-          Nearest station
-        </Text>
-        <View style={styles.chipWrap}>
-          {STATIONS.map((st) => (
-            <View key={st} style={styles.chipItem}>
-              <Chip
-                label={st}
-                selected={station === st}
-                onPress={() => {
-                  setStation(st);
-                  clearErr("station");
-                }}
-              />
-            </View>
-          ))}
-        </View>
-        <FieldError message={errors.station} />
-      </SectionCard>
-
-      {/* 3. Availability */}
-      <SectionCard step={3} title="Availability" index={2}>
-        <Text
-          style={{
-            color: colors.textSecondary,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.sm,
-            marginBottom: spacing.md,
-          }}
-        >
-          When is your space open for parking each day?
-        </Text>
-        <View style={styles.timeRow}>
-          <TimeField
-            label="Available from"
-            value={availableFrom}
-            open={pickingFrom}
-            onToggle={() => {
-              setPickingFrom((v) => !v);
-              setPickingTo(false);
-            }}
-          />
-          <View style={{ width: spacing.md }} />
-          <TimeField
-            label="Available to"
-            value={availableTo}
-            open={pickingTo}
-            onToggle={() => {
-              setPickingTo((v) => !v);
-              setPickingFrom(false);
-            }}
-          />
-        </View>
-
-        {pickingFrom ? (
-          <TimePicker
-            value={availableFrom}
-            onSelect={(v) => {
-              setAvailableFrom(v);
-              setPickingFrom(false);
-            }}
-          />
-        ) : null}
-        {pickingTo ? (
-          <TimePicker
-            value={availableTo}
-            onSelect={(v) => {
-              setAvailableTo(v);
-              setPickingTo(false);
-            }}
-          />
-        ) : null}
-      </SectionCard>
-
-      {/* 4. Pricing */}
-      <SectionCard step={4} title="Pricing" index={3}>
-        <View
-          style={[
-            styles.freeRow,
-            {
-              backgroundColor: colors.surfaceAlt,
-              borderRadius: radius.md,
-              padding: spacing.md,
-              marginBottom: spacing.md,
-            },
-          ]}
-        >
-          <View style={{ flex: 1 }}>
+          label="Price per day"
+          value={price}
+          onChangeText={(t) => setPrice(t.replace(/[^0-9]/g, ""))}
+          placeholder="Leave blank to list as free"
+          keyboardType="number-pad"
+          maxLength={5}
+          iconLeft={
             <Text
               style={{
-                color: colors.text,
+                color: colors.textSecondary,
                 fontFamily: typography.fonts.bodySemi,
                 fontSize: typography.sizes.md,
               }}
             >
-              Offer for free
+              ₹
             </Text>
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontFamily: typography.fonts.body,
-                fontSize: typography.sizes.sm,
-                marginTop: 1,
-              }}
-            >
-              Great for building reviews fast
-            </Text>
-          </View>
-          <Switch
-            value={isFree}
-            onValueChange={(v) => {
-              haptics.selection();
-              setIsFree(v);
-              clearErr("price");
-            }}
-            trackColor={{ false: colors.border, true: colors.primary }}
-            thumbColor={colors.white}
-          />
-        </View>
-
-        {!isFree ? (
-          <>
-            <Input
-              label="Price per day"
-              value={price}
-              onChangeText={(t) => {
-                setPrice(t.replace(/[^0-9]/g, ""));
-                clearErr("price");
-              }}
-              placeholder="e.g. 220"
-              keyboardType="number-pad"
-              maxLength={5}
-              iconLeft={
-                <Text
-                  style={{
-                    color: colors.textSecondary,
-                    fontFamily: typography.fonts.bodySemi,
-                    fontSize: typography.sizes.md,
-                  }}
-                >
-                  ₹
-                </Text>
-              }
-              error={errors.price}
-            />
-            {priceNumber > 0 ? (
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontFamily: typography.fonts.body,
-                  fontSize: typography.sizes.sm,
-                  marginTop: spacing.xs,
-                }}
-              >
-                Roughly {formatCurrency(Math.max(10, Math.round(priceNumber / 6)))}/hour ·
-                you keep about {formatCurrency(Math.round(priceNumber * 0.85))} after fees
-              </Text>
-            ) : null}
-          </>
-        ) : (
-          <View style={styles.freeNotice}>
-            <Ionicons name="gift-outline" size={18} color={colors.primary} />
-            <Text
-              style={{
-                marginLeft: spacing.sm,
-                color: colors.textSecondary,
-                fontFamily: typography.fonts.body,
-                fontSize: typography.sizes.sm,
-                flex: 1,
-              }}
-            >
-              This space will be listed as free. You can add pricing later.
-            </Text>
-          </View>
-        )}
-      </SectionCard>
-
-      {/* 5. Amenities */}
-      <SectionCard step={5} title="Amenities" index={4}>
-        <Text
-          style={{
-            color: colors.textSecondary,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.sm,
-            marginBottom: spacing.md,
-          }}
-        >
-          Select everything your space offers.
-        </Text>
-        <View style={styles.chipWrap}>
-          {AMENITY_OPTIONS.map((opt) => {
-            const selected = amenities.includes(opt.label);
-            return (
-              <View key={opt.id} style={styles.chipItem}>
-                <Chip
-                  label={opt.label}
-                  selected={selected}
-                  onPress={() => toggleAmenity(opt.label)}
-                  icon={
-                    <Ionicons
-                      name={opt.icon as any}
-                      size={14}
-                      color={selected ? colors.white : colors.textSecondary}
-                    />
-                  }
-                />
-              </View>
-            );
-          })}
-        </View>
-      </SectionCard>
-
-      {/* 6. Photos */}
-      <SectionCard step={6} title="Photos" index={5}>
-        <Text
-          style={{
-            color: colors.textSecondary,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.sm,
-            marginBottom: spacing.md,
-          }}
-        >
-          Add clear photos so drivers know exactly what to expect.
-        </Text>
-        <View style={styles.photoGrid}>
-          {photos.map((uri) => (
-            <MotiView
-              key={uri}
-              from={{ opacity: 0, scale: 0.85 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: "timing", duration: 260 }}
-              style={styles.photoItem}
-            >
-              <Image
-                source={{ uri }}
-                style={[
-                  styles.photo,
-                  { backgroundColor: colors.surfaceAlt, borderRadius: radius.md },
-                ]}
-              />
-              <Pressable
-                onPress={() => removePhoto(uri)}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel="Remove photo"
-                style={[
-                  styles.removeBtn,
-                  { backgroundColor: colors.overlay, borderRadius: radius.pill },
-                ]}
-              >
-                <Ionicons name="close" size={14} color={colors.white} />
-              </Pressable>
-            </MotiView>
-          ))}
-
-          {photos.length < 6 ? (
-            <Pressable
-              onPress={addPhoto}
-              accessibilityRole="button"
-              accessibilityLabel="Add photo"
-              style={({ pressed }) => [
-                styles.photoItem,
-                styles.addPhoto,
-                {
-                  borderColor: colors.primary,
-                  borderRadius: radius.md,
-                  backgroundColor: colors.primaryLight,
-                  opacity: pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="camera-outline" size={22} color={colors.primary} />
-              <Text
-                style={{
-                  marginTop: 4,
-                  color: colors.primary,
-                  fontFamily: typography.fonts.bodyMedium,
-                  fontSize: typography.sizes.xs,
-                }}
-              >
-                Add photo
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <FieldError message={errors.photos} />
-      </SectionCard>
-
-      {/* 7. Instructions */}
-      <SectionCard step={7} title="Arrival instructions" index={6}>
-        <Input
-          label="Instructions (optional)"
-          value={instructions}
-          onChangeText={setInstructions}
-          placeholder="e.g. Ring the doorbell at gate C. Park nose-in on the left."
-          multiline
-          maxLength={240}
+          }
         />
-        <Text
-          style={{
-            alignSelf: "flex-end",
-            color: colors.textMuted,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.xs,
-            marginTop: spacing.xs,
-          }}
-        >
-          {instructions.length}/240
-        </Text>
-      </SectionCard>
+      </Card>
 
       <Button
         label="Publish space"
@@ -806,7 +698,6 @@ export default function ListSpace() {
         loading={submitting}
         onPress={handlePublish}
         iconRight={<Ionicons name="rocket-outline" size={18} color={colors.white} />}
-        style={{ marginTop: spacing.sm }}
       />
       <Text
         style={{
@@ -818,158 +709,47 @@ export default function ListSpace() {
           lineHeight: 18,
         }}
       >
-        By publishing you agree to Parkmitter's hosting guidelines. You can edit
-        or unlist your space any time.
+        Only the map location is required. You can add photos, timings and more
+        after publishing.
       </Text>
     </Screen>
   );
 }
 
-// ---- local sub-components ----
-
-function labelStyle(colors: any, typography: any, spacing: any) {
-  return {
-    color: colors.textSecondary,
-    fontFamily: typography.fonts.bodyMedium,
-    fontSize: typography.sizes.sm,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  };
-}
-
-interface TimeFieldProps {
-  label: string;
-  value: string;
-  open: boolean;
-  onToggle: () => void;
-}
-
-function TimeField({ label, value, open, onToggle }: TimeFieldProps) {
-  const { colors, spacing, typography, radius } = useTheme();
-  return (
-    <View style={{ flex: 1 }}>
-      <Text
-        style={{
-          color: colors.textSecondary,
-          fontFamily: typography.fonts.bodyMedium,
-          fontSize: typography.sizes.sm,
-          marginBottom: spacing.xs + 2,
-        }}
-      >
-        {label}
-      </Text>
-      <Pressable
-        onPress={() => {
-          haptics.light();
-          onToggle();
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={`${label}, ${formatTime(value)}`}
-        style={({ pressed }) => [
-          styles.timeField,
-          {
-            backgroundColor: colors.surface,
-            borderColor: open ? colors.primary : colors.border,
-            borderWidth: open ? 1.5 : 1,
-            borderRadius: radius.md,
-            paddingHorizontal: spacing.md,
-            opacity: pressed ? 0.8 : 1,
-          },
-        ]}
-      >
-        <Ionicons name="time-outline" size={18} color={colors.textMuted} />
-        <Text
-          style={{
-            flex: 1,
-            marginLeft: spacing.sm,
-            color: colors.text,
-            fontFamily: typography.fonts.bodyMedium,
-            fontSize: typography.sizes.md,
-          }}
-        >
-          {formatTime(value)}
-        </Text>
-        <Ionicons
-          name={open ? "chevron-up" : "chevron-down"}
-          size={16}
-          color={colors.textMuted}
-        />
-      </Pressable>
-    </View>
-  );
-}
-
-interface TimePickerProps {
-  value: string;
-  onSelect: (value: string) => void;
-}
-
-function TimePicker({ value, onSelect }: TimePickerProps) {
-  const { colors, spacing, typography, radius } = useTheme();
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: -6 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: "timing", duration: 220 }}
-      style={[
-        styles.pickerWrap,
-        {
-          marginTop: spacing.md,
-          backgroundColor: colors.surfaceAlt,
-          borderRadius: radius.md,
-          padding: spacing.sm,
-        },
-      ]}
-    >
-      {TIME_SLOTS.map((slot) => {
-        const active = slot === value;
-        return (
-          <Pressable
-            key={slot}
-            onPress={() => {
-              haptics.selection();
-              onSelect(slot);
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={formatTime(slot)}
-            style={[
-              styles.slot,
-              {
-                backgroundColor: active ? colors.primary : colors.surface,
-                borderRadius: radius.pill,
-                margin: 4,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: active ? colors.white : colors.textSecondary,
-                fontFamily: typography.fonts.bodyMedium,
-                fontSize: typography.sizes.sm,
-              }}
-            >
-              {formatTime(slot)}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </MotiView>
-  );
-}
-
 const styles = StyleSheet.create({
-  sectionHead: {
+  panel: {
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
+  panelLoading: {
     flexDirection: "row",
     alignItems: "center",
+    padding: 14,
   },
-  stepDot: {
-    width: 26,
-    height: 26,
+  panelRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  fieldLabel: {},
+  lmChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  pickedBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+  },
+  hintBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+  },
   chipWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -978,63 +758,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
     marginBottom: 8,
   },
-  errRow: {
+  optionalHead: {
     flexDirection: "row",
     alignItems: "center",
-  },
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-  },
-  timeField: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 52,
-  },
-  pickerWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  slot: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  freeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  freeNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  photoGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  photoItem: {
-    width: 96,
-    height: 96,
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  photo: {
-    width: 96,
-    height: 96,
-  },
-  removeBtn: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    width: 22,
-    height: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addPhoto: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderStyle: "dashed",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
   summaryRow: {
     flexDirection: "row",

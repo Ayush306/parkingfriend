@@ -20,6 +20,7 @@ import {
 import { ThemeProvider } from "@/theme/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { ToastProvider } from "@/components/ui/Toast";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { RootNavigator } from "@/navigation/RootNavigator";
 
 // Keep the native splash screen visible while we load fonts and resources.
@@ -64,6 +65,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
           <AuthProvider>
@@ -80,6 +82,7 @@ export default function App() {
           </AuthProvider>
         </ThemeProvider>
       </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

@@ -8,8 +8,21 @@ import {
   STORAGE_KEYS,
   writePersisted,
 } from "@/services/mockClient";
+import { isApiEnabled } from "@/config/apiConfig";
+import { apiSpots } from "@/services/api/apiServices";
 
-const allSpots = spotsData as unknown as ParkingSpot[];
+const seedSpots = spotsData as unknown as ParkingSpot[];
+
+/**
+ * All spots visible in the marketplace = bundled spots (none in production)
+ * merged with every space the user has listed on this device, so a listing
+ * you create is immediately findable in search.
+ */
+async function readAllSpots(): Promise<ParkingSpot[]> {
+  const listed = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, []);
+  const seen = new Set(seedSpots.map((s) => s.id));
+  return [...seedSpots, ...listed.filter((s) => !seen.has(s.id))];
+}
 
 export interface SpotFilters {
   /** Text query matched against title, area, landmark, station, city. */
@@ -30,12 +43,9 @@ export interface SpotFilters {
   sort?: "recommended" | "priceLow" | "priceHigh" | "rating" | "distance";
 }
 
-/** Reads the persisted set of favorited spot ids (seeded from JSON flags). */
+/** Reads the persisted set of favorited spot ids. */
 async function readFavoriteIds(): Promise<string[]> {
-  const seedFavorites = allSpots
-    .filter((s) => s.isFavorite)
-    .map((s) => s.id);
-  return readPersisted<string[]>(STORAGE_KEYS.favorites, seedFavorites);
+  return readPersisted<string[]>(STORAGE_KEYS.favorites, []);
 }
 
 /** Returns a fresh copy of all spots with favorite flags applied. */
@@ -47,8 +57,9 @@ async function decorate(spots: ParkingSpot[]): Promise<ParkingSpot[]> {
 
 /** Nearby spots sorted by distance ascending. */
 async function getNearby(): Promise<ParkingSpot[]> {
+  if (isApiEnabled()) return apiSpots.getNearby();
   await delay(randomLatency());
-  const decorated = await decorate(allSpots);
+  const decorated = await decorate(await readAllSpots());
   return decorated
     .filter((s) => s.available)
     .sort((a, b) => a.distanceMeters - b.distanceMeters);
@@ -56,8 +67,9 @@ async function getNearby(): Promise<ParkingSpot[]> {
 
 /** Popular spots sorted by rating then review count descending. */
 async function getPopular(): Promise<ParkingSpot[]> {
+  if (isApiEnabled()) return apiSpots.getPopular();
   await delay(randomLatency());
-  const decorated = await decorate(allSpots);
+  const decorated = await decorate(await readAllSpots());
   return decorated
     .slice()
     .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount);
@@ -65,8 +77,9 @@ async function getPopular(): Promise<ParkingSpot[]> {
 
 /** Full text + filter search across all spots. */
 async function search(query: string, filters: SpotFilters = {}): Promise<ParkingSpot[]> {
+  if (isApiEnabled()) return apiSpots.search(query, filters);
   await delay(randomLatency());
-  let results = await decorate(allSpots);
+  let results = await decorate(await readAllSpots());
 
   const q = (query ?? filters.query ?? "").trim().toLowerCase();
   if (q.length > 0) {
@@ -131,19 +144,26 @@ async function search(query: string, filters: SpotFilters = {}): Promise<Parking
 
 /** Returns a single spot by id, or null if not found. */
 async function getById(id: string): Promise<ParkingSpot | null> {
+  if (isApiEnabled()) return apiSpots.getById(id);
   await delay(randomLatency());
-  const match = allSpots.find((s) => s.id === id);
+  const match = (await readAllSpots()).find((s) => s.id === id);
   if (!match) return null;
   const [decorated] = await decorate([match]);
   return decorated;
 }
 
-/** All spots the user has favorited. */
+/** All spots the user has favorited (favorites are stored on-device). */
 async function getFavorites(): Promise<ParkingSpot[]> {
+  if (isApiEnabled()) {
+    const favIds = await readFavoriteIds();
+    const favSet = new Set(favIds);
+    const spots = await apiSpots.search("", {});
+    return spots.filter((s) => favSet.has(s.id));
+  }
   await delay(randomLatency());
   const favIds = await readFavoriteIds();
   const favSet = new Set(favIds);
-  const decorated = await decorate(allSpots);
+  const decorated = await decorate(await readAllSpots());
   return decorated.filter((s) => favSet.has(s.id));
 }
 

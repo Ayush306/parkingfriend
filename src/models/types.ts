@@ -25,7 +25,7 @@ export interface ParkingSpot {
   title: string;
   hostId: string;
   host: Host;
-  type: "driveway" | "garage" | "openlot" | "basement";
+  type: "home" | "driveway" | "garage" | "openlot" | "basement";
   vehicleTypes: ("car" | "bike" | "suv")[];
   address: string;
   area: string;
@@ -67,6 +67,8 @@ export interface Booking {
   createdAt: string;
   contactUnlocked: boolean;
   otp?: string;
+  /** Host's phone number — revealed ONLY after the host accepts the request. */
+  hostPhone?: string | null;
 }
 
 export interface Transaction {
@@ -158,8 +160,12 @@ export interface HostRequest {
   spotTitle: string;
   requesterName: string;
   requesterAvatar?: string;
+  /** Requester's phone — so the host can also reach out after accepting. */
+  requesterPhone?: string;
   vehicleType: string;
   date: string;
   time: string;
   status: "pending" | "accepted" | "declined";
+  /** Links back to the driver's booking so accept/decline updates it. */
+  bookingId?: string;
 }

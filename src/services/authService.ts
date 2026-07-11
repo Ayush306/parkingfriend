@@ -9,6 +9,8 @@ import {
   clone,
 } from "@/services/mockClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isApiEnabled } from "@/config/apiConfig";
+import { apiAuth } from "@/services/api/apiServices";
 
 const seedUser = currentUser as User;
 
@@ -23,8 +25,11 @@ export interface VerifyOtpResult {
   message: string;
 }
 
-/** Simulates sending an OTP to the given phone number. */
+/** Sends an OTP to the given phone number (real API when configured). */
 async function sendOtp(phone: string): Promise<SendOtpResult> {
+  if (isApiEnabled()) {
+    return apiAuth.sendOtp(phone);
+  }
   await delay(randomLatency());
   return {
     success: true,
@@ -37,6 +42,11 @@ async function sendOtp(phone: string): Promise<SendOtpResult> {
  * valid. On success returns the seeded current user and saves the session.
  */
 async function verifyOtp(phone: string, code: string): Promise<VerifyOtpResult> {
+  if (isApiEnabled()) {
+    const result = await apiAuth.verifyOtp(phone, code);
+    await saveSession(result.user);
+    return result;
+  }
   await delay(randomLatency());
   const trimmed = (code ?? "").trim();
   const isValid =
@@ -73,9 +83,10 @@ async function saveSession(user: User): Promise<void> {
   await writePersisted(STORAGE_KEYS.session, user);
 }
 
-/** Clears the saved session (sign out). */
+/** Clears the saved session (sign out) and any API token. */
 async function logout(): Promise<void> {
   await removePersisted(STORAGE_KEYS.session);
+  await apiAuth.logout().catch(() => {});
 }
 
 /** Whether the user has completed onboarding at least once. */

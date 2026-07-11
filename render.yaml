@@ -1,0 +1,19 @@
+# Render.com blueprint — deploys the Parkmitter API on the FREE tier.
+# In Render: New + → Blueprint → pick this repo → it reads this file.
+# The database lives in Turso (free), so Render's ephemeral disk is fine.
+services:
+  - type: web
+    name: parkmitter-api
+    plan: free
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TURSO_DATABASE_URL
+        sync: false # paste your Turso DB URL (libsql://...) in the Render dashboard
+      - key: TURSO_AUTH_TOKEN
+        sync: false # paste your Turso auth token in the Render dashboard

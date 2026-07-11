@@ -11,16 +11,19 @@ export type RootStackParamList = {
 
   // Tab primary screens (registered inside MainTabs, but typed for convenience)
   Home: undefined;
-  Explore: undefined;
   Bookings: undefined;
+  Post: undefined;
   Wallet: undefined;
   Profile: undefined;
 
+  // Explore is no longer a tab — it's a pushed screen reachable from anywhere
+  Explore: undefined;
+
   // Shared detail screens (registered at the main native-stack level)
   SpotDetail: { id?: string } | undefined;
-  SearchResults: { query?: string; filters?: any } | undefined;
-  BookingFlow: { spotId?: string } | undefined;
-  BookingConfirmation: { bookingId?: string } | undefined;
+  SearchResults:
+    | { query?: string; latitude?: number; longitude?: number; filters?: any }
+    | undefined;
   BookingDetail: { id?: string } | undefined;
   EditProfile: undefined;
   Settings: undefined;
@@ -37,8 +40,8 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Explore: undefined;
   Bookings: undefined;
+  Post: undefined;
   Wallet: undefined;
   Profile: undefined;
 };

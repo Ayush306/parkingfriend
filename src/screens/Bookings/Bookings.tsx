@@ -4,7 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  Image,
+  Linking,
   RefreshControl,
   Pressable,
 } from "react-native";
@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { NoBookings } from "@/components/illustrations/NoBookings";
+import { useToast } from "@/components/ui/Toast";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
@@ -29,14 +30,13 @@ import type { Booking } from "@/models/types";
 import { formatCurrency, formatDate } from "@/utils/format";
 import { haptics } from "@/utils/haptics";
 
-const TABS = ["Upcoming", "Active", "Completed", "Cancelled"] as const;
+const TABS = ["Requested", "Accepted", "Past"] as const;
 type TabLabel = (typeof TABS)[number];
 
 const TAB_STATUS: Record<TabLabel, Booking["status"][]> = {
-  Upcoming: ["confirmed", "pending"],
-  Active: ["active"],
-  Completed: ["completed"],
-  Cancelled: ["cancelled"],
+  Requested: ["pending"],
+  Accepted: ["confirmed", "active"],
+  Past: ["completed", "cancelled"],
 };
 
 const STATUS_TONE: Record<
@@ -44,59 +44,48 @@ const STATUS_TONE: Record<
   "primary" | "success" | "warning" | "error" | "neutral"
 > = {
   pending: "warning",
-  confirmed: "primary",
+  confirmed: "success",
   active: "success",
   completed: "neutral",
   cancelled: "error",
 };
 
 const STATUS_LABEL: Record<Booking["status"], string> = {
-  pending: "Pending",
-  confirmed: "Confirmed",
+  pending: "Requested",
+  confirmed: "Accepted",
   active: "Active",
   completed: "Completed",
-  cancelled: "Cancelled",
+  cancelled: "Declined",
 };
 
-/** Renders a "HH:mm" 24h string as friendly 12h label. */
-function label12h(hhmm?: string): string {
-  if (!hhmm) return "--";
-  const [h, m] = hhmm.split(":").map((n) => parseInt(n, 10));
-  const meridiem = h >= 12 ? "PM" : "AM";
-  let hour = h % 12;
-  if (hour === 0) hour = 12;
-  return `${hour}:${(m || 0).toString().padStart(2, "0")} ${meridiem}`;
-}
-
 const EMPTY_COPY: Record<TabLabel, { title: string; subtitle: string }> = {
-  Upcoming: {
-    title: "No upcoming bookings",
-    subtitle: "Book a parking spot near your station and it will show up here.",
+  Requested: {
+    title: "No requests yet",
+    subtitle:
+      "Search a place and tap Request on any parking nearby — your requests will show up here.",
   },
-  Active: {
-    title: "Nothing active right now",
-    subtitle: "Your ongoing parking sessions will appear here.",
+  Accepted: {
+    title: "Nothing accepted yet",
+    subtitle:
+      "When a host accepts your request, their phone number appears here so you can call them.",
   },
-  Completed: {
-    title: "No completed trips yet",
-    subtitle: "Past bookings you've wrapped up will be listed here.",
-  },
-  Cancelled: {
-    title: "No cancelled bookings",
-    subtitle: "Bookings you cancel will be kept here for reference.",
+  Past: {
+    title: "No past requests",
+    subtitle: "Completed and declined requests are kept here for reference.",
   },
 };
 
 export default function Bookings() {
   const navigation = useNavigation<any>();
   const { colors, spacing, typography, radius } = useTheme();
+  const toast = useToast();
 
   const { data, loading, error, refetch } = useAsync<Booking[]>(
     () => bookingService.list(),
     []
   );
 
-  const [tab, setTab] = useState<TabLabel>("Upcoming");
+  const [tab, setTab] = useState<TabLabel>("Requested");
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -117,6 +106,16 @@ export default function Bookings() {
     navigation.navigate("BookingDetail", { id: b.id });
   };
 
+  const callHost = useCallback(
+    (phone: string) => {
+      haptics.light();
+      Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`).catch(() =>
+        toast.show("Couldn't open the dialer on this device.", "error")
+      );
+    },
+    [toast]
+  );
+
   const renderItem = useCallback(
     ({ item, index }: { item: Booking; index: number }) => (
       <MotiView
@@ -125,60 +124,73 @@ export default function Bookings() {
         transition={{ type: "timing", duration: 300, delay: Math.min(index, 6) * 55 }}
         style={{ marginBottom: spacing.md }}
       >
-        <Card padded={false} onPress={() => openBooking(item)} style={{ overflow: "hidden" }}>
-          <View style={{ flexDirection: "row", padding: spacing.md }}>
-            <Image
-              source={{ uri: item.spot.images[0] }}
-              style={{
-                width: 82,
-                height: 82,
-                borderRadius: radius.md,
-                backgroundColor: colors.surfaceAlt,
-              }}
-            />
-            <View style={{ flex: 1, marginLeft: spacing.md, justifyContent: "space-between" }}>
-              <View style={styles.rowBetween}>
+        <Card onPress={() => openBooking(item)}>
+          <View style={styles.rowBetween}>
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, marginRight: spacing.sm }}>
+              <View style={[styles.pinBadge, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
+                <Ionicons name="location" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
                 <Text
                   numberOfLines={1}
-                  style={{ flex: 1, marginRight: spacing.sm, color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.md }}
+                  style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.md }}
                 >
                   {item.spot.title}
                 </Text>
-                <Badge label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} size="sm" />
-              </View>
-
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-                <Ionicons name="calendar-outline" size={13} color={colors.textMuted} />
-                <Text style={{ marginLeft: 4, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: 2, color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}
+                >
                   {formatDate(item.date, { withWeekday: true, withYear: false })}
-                </Text>
-                <Text style={{ marginHorizontal: 6, color: colors.border }}>|</Text>
-                <Ionicons name="time-outline" size={13} color={colors.textMuted} />
-                <Text style={{ marginLeft: 4, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
-                  {label12h(item.startTime)}
-                </Text>
-              </View>
-
-              <View style={styles.rowBetween}>
-                <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
-                  <Ionicons name="location-outline" size={13} color={colors.textMuted} />
-                  <Text
-                    numberOfLines={1}
-                    style={{ marginLeft: 4, flex: 1, color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}
-                  >
-                    {item.spot.area}
-                  </Text>
-                </View>
-                <Text style={{ color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.md }}>
-                  {formatCurrency(item.amount)}
+                  {item.spot.area ? ` · ${item.spot.area}` : ""}
                 </Text>
               </View>
             </View>
+            <Badge label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} size="sm" />
           </View>
+
+          <View style={[styles.rowBetween, { marginTop: spacing.md }]}>
+            <Text style={{ color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.md }}>
+              {item.spot.isFree ? "Free" : `${formatCurrency(item.amount)}/day`}
+            </Text>
+            <Text style={{ color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
+              Pay the host directly
+            </Text>
+          </View>
+
+          {/* The whole point: phone appears only after the host accepts. */}
+          {item.contactUnlocked && item.hostPhone ? (
+            <Pressable
+              onPress={() => callHost(item.hostPhone!)}
+              accessibilityRole="button"
+              accessibilityLabel={`Call host at ${item.hostPhone}`}
+              style={({ pressed }) => [
+                styles.callRow,
+                { backgroundColor: colors.primary, borderRadius: radius.md, marginTop: spacing.md, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Ionicons name="call" size={16} color={colors.white} />
+              <Text style={{ marginLeft: 8, color: colors.white, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                Call host · {item.hostPhone}
+              </Text>
+            </Pressable>
+          ) : item.status === "pending" ? (
+            <View
+              style={[
+                styles.callRow,
+                { backgroundColor: colors.surfaceAlt, borderRadius: radius.md, marginTop: spacing.md },
+              ]}
+            >
+              <Ionicons name="hourglass-outline" size={15} color={colors.textSecondary} />
+              <Text style={{ marginLeft: 8, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
+                Waiting for the host to accept — their number appears here after.
+              </Text>
+            </View>
+          ) : null}
         </Card>
       </MotiView>
     ),
-    [colors, spacing, typography, radius]
+    [colors, spacing, typography, radius, callHost]
   );
 
   return (
@@ -223,10 +235,10 @@ export default function Bookings() {
               illustration={NoBookings}
               title={EMPTY_COPY[tab].title}
               subtitle={EMPTY_COPY[tab].subtitle}
-              actionLabel={tab === "Upcoming" ? "Find parking" : undefined}
+              actionLabel={tab === "Requested" ? "Find parking" : undefined}
               onAction={
-                tab === "Upcoming"
-                  ? () => navigation.navigate("Main", { screen: "Explore" })
+                tab === "Requested"
+                  ? () => navigation.navigate("Explore")
                   : undefined
               }
             />
@@ -263,5 +275,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  pinBadge: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  callRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
 });

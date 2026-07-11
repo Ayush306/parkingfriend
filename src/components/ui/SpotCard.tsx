@@ -41,6 +41,7 @@ export interface SpotCardProps {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const TYPE_LABEL: Record<ParkingSpot["type"], string> = {
+  home: "Home",
   driveway: "Driveway",
   garage: "Garage",
   openlot: "Open Lot",
@@ -48,7 +49,8 @@ const TYPE_LABEL: Record<ParkingSpot["type"], string> = {
 };
 
 const TYPE_ICON: Record<ParkingSpot["type"], keyof typeof Ionicons.glyphMap> = {
-  driveway: "home-outline",
+  home: "home-outline",
+  driveway: "car-outline",
   garage: "business-outline",
   openlot: "map-outline",
   basement: "layers-outline",

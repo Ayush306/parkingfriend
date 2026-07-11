@@ -1,6 +1,8 @@
 import type { EarningEntry, WalletSummary } from "@/models/types";
 import earningsData from "@/data/earnings.json";
 import { clone, delay, randomLatency } from "@/services/mockClient";
+import { isApiEnabled } from "@/config/apiConfig";
+import { apiWallet } from "@/services/api/apiServices";
 
 /**
  * Parkmitter does not process any payments. This service only tallies the
@@ -23,6 +25,7 @@ function isWithinMonths(dateISO: string, months: number): boolean {
 
 /** Aggregated savings + earnings totals for the wallet summary. */
 async function getSummary(): Promise<WalletSummary> {
+  if (isApiEnabled()) return apiWallet.getSummary();
   await delay(randomLatency());
   const savings = entries.filter((e) => e.kind === "saving");
   const earnings = entries.filter((e) => e.kind === "earning");
@@ -40,6 +43,7 @@ async function getSummary(): Promise<WalletSummary> {
 
 /** The full activity feed (savings + earnings), newest first. */
 async function getEntries(): Promise<EarningEntry[]> {
+  if (isApiEnabled()) return apiWallet.getEntries();
   await delay(randomLatency());
   return clone(entries).sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()

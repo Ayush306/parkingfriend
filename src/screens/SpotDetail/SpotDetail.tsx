@@ -21,7 +21,10 @@ import { useAsync } from "@/hooks/useAsync";
 import { useFavorites } from "@/hooks/useFavorites";
 import { haptics } from "@/utils/haptics";
 import { spotService } from "@/services/spotService";
+import { bookingService } from "@/services/bookingService";
 import { formatDistance, formatTime } from "@/utils/format";
+import { openDirections } from "@/utils/directions";
+import { useToast } from "@/components/ui/Toast";
 import type { ParkingSpot, Review } from "@/models/types";
 import reviewsData from "@/data/reviews.json";
 
@@ -44,6 +47,7 @@ const HERO_H = 300;
 const allReviews = reviewsData as unknown as Review[];
 
 const TYPE_LABEL: Record<ParkingSpot["type"], string> = {
+  home: "Home",
   driveway: "Driveway",
   garage: "Garage",
   openlot: "Open Lot",
@@ -80,6 +84,7 @@ export default function SpotDetail() {
   const route = useRoute<any>();
   const { colors, spacing, typography, radius, shadows } = useTheme();
   const { isFavorite, toggle } = useFavorites();
+  const toast = useToast();
 
   const spotId: string = (route.params as any)?.id ?? "";
   const [imageIndex, setImageIndex] = useState(0);
@@ -108,6 +113,37 @@ export default function SpotDetail() {
   );
 
   const pins = useMemo<MapPin[]>(() => [{ x: 0.5, y: 0.46, primary: true }], []);
+
+  const getDirections = async () => {
+    haptics.light();
+    const opened = await openDirections(spot!.latitude, spot!.longitude);
+    if (!opened) {
+      toast.show("Couldn't open Google Maps on this device.", "error");
+    }
+  };
+
+  // One-tap parking request — host's number appears in Bookings on accept.
+  const [requesting, setRequesting] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const sendRequest = async () => {
+    if (!spot || requested) return;
+    setRequesting(true);
+    try {
+      await bookingService.create({ spotId: spot.id });
+      haptics.success();
+      setRequested(true);
+      toast.show(
+        "Request sent! You'll see the host's number in Bookings once they accept.",
+        "success"
+      );
+      navigation.navigate("Bookings");
+    } catch (e: any) {
+      haptics.error();
+      toast.show(e?.message ?? "Couldn't send the request.", "error");
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   // ── Loading ──
   if (spotAsync.loading) {
@@ -437,9 +473,18 @@ export default function SpotDetail() {
                 {spot.address} · {spot.landmark}
               </Text>
             </View>
+            <Button
+              label="Get directions"
+              variant="secondary"
+              onPress={getDirections}
+              iconLeft={<Ionicons name="navigate" size={16} color={colors.white} />}
+              style={{ marginTop: spacing.md }}
+              fullWidth
+            />
           </View>
 
-          {/* ── Reviews ── */}
+          {/* ── Reviews (hidden until the spot actually has some) ── */}
+          {reviews.length > 0 ? (
           <View style={{ marginTop: spacing.xl }}>
             <SectionHeader title={`Reviews (${spot.reviewsCount})`} />
             {reviews.map((r, index) => (
@@ -520,6 +565,7 @@ export default function SpotDetail() {
               </Pressable>
             ) : null}
           </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -585,13 +631,24 @@ export default function SpotDetail() {
 
           <View style={{ flex: 1, marginLeft: spacing.lg }}>
             <Button
-              label={spot.available ? "Request to park" : "Currently full"}
+              label={
+                requested
+                  ? "Requested ✓"
+                  : spot.available
+                  ? "Request to park"
+                  : "Currently full"
+              }
               variant="gradient"
               size="lg"
               fullWidth
-              disabled={!spot.available}
-              iconRight={<Ionicons name="arrow-forward" size={18} color={colors.white} />}
-              onPress={() => navigation.navigate("BookingFlow", { spotId: spot.id })}
+              loading={requesting}
+              disabled={!spot.available || requested}
+              iconRight={
+                requested ? undefined : (
+                  <Ionicons name="paper-plane" size={17} color={colors.white} />
+                )
+              }
+              onPress={sendRequest}
             />
           </View>
         </View>

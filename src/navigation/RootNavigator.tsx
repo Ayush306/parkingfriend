@@ -12,10 +12,9 @@ import Login from "@/screens/Login/Login";
 import OtpVerification from "@/screens/OtpVerification/OtpVerification";
 
 // Shared detail screens (reachable from anywhere)
+import Explore from "@/screens/Explore/Explore";
 import SpotDetail from "@/screens/SpotDetail/SpotDetail";
 import SearchResults from "@/screens/SearchResults/SearchResults";
-import BookingFlow from "@/screens/BookingFlow/BookingFlow";
-import BookingConfirmation from "@/screens/BookingConfirmation/BookingConfirmation";
 import BookingDetail from "@/screens/BookingDetail/BookingDetail";
 import EditProfile from "@/screens/EditProfile/EditProfile";
 import Settings from "@/screens/Settings/Settings";
@@ -64,14 +63,9 @@ export function RootNavigator() {
       />
 
       {/* Shared detail screens — navigable from any tab/screen */}
+      <Stack.Screen name="Explore" component={Explore} />
       <Stack.Screen name="SpotDetail" component={SpotDetail} />
       <Stack.Screen name="SearchResults" component={SearchResults} />
-      <Stack.Screen name="BookingFlow" component={BookingFlow} />
-      <Stack.Screen
-        name="BookingConfirmation"
-        component={BookingConfirmation}
-        options={{ gestureEnabled: false, animation: "fade" }}
-      />
       <Stack.Screen name="BookingDetail" component={BookingDetail} />
       <Stack.Screen name="EditProfile" component={EditProfile} />
       <Stack.Screen name="Settings" component={Settings} />

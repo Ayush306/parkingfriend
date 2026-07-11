@@ -14,7 +14,7 @@ import { haptics } from "@/utils/haptics";
 const FEATURES: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { icon: "shield-checkmark-outline", label: "Verified hosts" },
   { icon: "flash-outline", label: "Instant booking" },
-  { icon: "wallet-outline", label: "Secure payments" },
+  { icon: "wallet-outline", label: "Zero platform fees" },
 ];
 
 export default function Welcome() {

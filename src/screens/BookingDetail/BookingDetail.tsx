@@ -31,6 +31,7 @@ import { bookingService } from "@/services/bookingService";
 import type { Booking } from "@/models/types";
 import { formatCurrency, formatDate } from "@/utils/format";
 import { haptics } from "@/utils/haptics";
+import { openDirections } from "@/utils/directions";
 
 /** Renders a "HH:mm" 24h string as friendly 12h label. */
 function label12h(hhmm?: string): string {
@@ -129,9 +130,12 @@ export default function BookingDetail() {
     booking && (booking.status === "confirmed" || booking.status === "pending");
   const contactUnlocked = booking?.contactUnlocked ?? false;
 
-  const getDirections = () => {
+  const getDirections = async () => {
     haptics.light();
-    toast.show("Opening directions to your parking spot...", "info");
+    const opened = await openDirections(booking!.spot.latitude, booking!.spot.longitude);
+    if (!opened) {
+      toast.show("Couldn't open Google Maps on this device.", "error");
+    }
   };
 
   const callHost = () => {

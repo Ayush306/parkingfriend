@@ -1,6 +1,42 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /**
+ * Bump this when the shape/meaning of locally persisted demo data changes.
+ * v2 (2026-07-11): dummy marketplace data removed — old seeded spots,
+ * bookings, requests and earnings must be wiped from existing installs.
+ */
+const DATA_VERSION = "2";
+const DATA_VERSION_KEY = "pm_data_version";
+
+let migrationDone: Promise<void> | null = null;
+
+/** Wipes stale persisted demo data once per DATA_VERSION bump. */
+function ensureFreshData(): Promise<void> {
+  if (!migrationDone) {
+    migrationDone = (async () => {
+      try {
+        const version = await AsyncStorage.getItem(DATA_VERSION_KEY);
+        if (version !== DATA_VERSION) {
+          await AsyncStorage.multiRemove([
+            "pm_bookings",
+            "pm_requests",
+            "pm_listings",
+            "pm_earnings",
+            "pm_favorites",
+            "pm_notifications",
+            "pm_wallet",
+          ]);
+          await AsyncStorage.setItem(DATA_VERSION_KEY, DATA_VERSION);
+        }
+      } catch {
+        // Migration is best-effort; worst case old demo rows linger.
+      }
+    })();
+  }
+  return migrationDone;
+}
+
+/**
  * Resolves after the given number of milliseconds.
  * Used to simulate network latency across all mock services.
  */
@@ -53,6 +89,7 @@ export function clone<T>(value: T): T {
  * fresh, independent copy of the data.
  */
 export async function readPersisted<T>(key: string, seed: T): Promise<T> {
+  await ensureFreshData();
   try {
     const raw = await AsyncStorage.getItem(key);
     if (raw != null) {

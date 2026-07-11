@@ -12,8 +12,8 @@ import { useTheme } from "@/theme/ThemeContext";
 import { MainTabParamList } from "@/navigation/types";
 
 import Home from "@/screens/Home/Home";
-import Explore from "@/screens/Explore/Explore";
 import Bookings from "@/screens/Bookings/Bookings";
+import Post from "@/screens/Post/Post";
 import Wallet from "@/screens/Wallet/Wallet";
 import Profile from "@/screens/Profile/Profile";
 
@@ -30,16 +30,16 @@ type TabMeta = {
 const TABS: TabMeta[] = [
   { name: "Home", label: "Home", icon: "home-outline", iconActive: "home" },
   {
-    name: "Explore",
-    label: "Explore",
-    icon: "search-outline",
-    iconActive: "search",
-  },
-  {
     name: "Bookings",
     label: "Bookings",
     icon: "car-outline",
     iconActive: "car",
+  },
+  {
+    name: "Post",
+    label: "Post",
+    icon: "add",
+    iconActive: "add",
     center: true,
   },
   {
@@ -200,8 +200,8 @@ export default function MainTabs() {
       tabBar={(props) => <CustomTabBar {...props} />}
     >
       <Tab.Screen name="Home" component={Home} />
-      <Tab.Screen name="Explore" component={Explore} />
       <Tab.Screen name="Bookings" component={Bookings} />
+      <Tab.Screen name="Post" component={Post} />
       <Tab.Screen name="Wallet" component={Wallet} />
       <Tab.Screen name="Profile" component={Profile} />
     </Tab.Navigator>

@@ -50,7 +50,7 @@ export type Station = (typeof STATIONS)[number];
 
 /** Vehicle types a spot can accept / a driver can book for. */
 export const VEHICLE_OPTIONS = [
-  { id: "car", label: "Car", icon: "car-sport-outline" },
+  { id: "car", label: "Car", icon: "car-outline" },
   { id: "bike", label: "Bike", icon: "bicycle-outline" },
   { id: "suv", label: "SUV", icon: "car-outline" },
 ] as const;
@@ -60,7 +60,8 @@ export type VehicleId = VehicleOption["id"];
 
 /** Parking spot types shown in filters and on listing creation. */
 export const SPOT_TYPE_OPTIONS = [
-  { id: "driveway", label: "Driveway", icon: "home-outline" },
+  { id: "home", label: "Home", icon: "home-outline" },
+  { id: "driveway", label: "Driveway", icon: "car-outline" },
   { id: "garage", label: "Garage", icon: "business-outline" },
   { id: "openlot", label: "Open Lot", icon: "map-outline" },
   { id: "basement", label: "Basement", icon: "layers-outline" },

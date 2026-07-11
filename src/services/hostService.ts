@@ -1,4 +1,5 @@
-import type { HostRequest, ParkingSpot } from "@/models/types";
+import type { Booking, HostRequest, ParkingSpot } from "@/models/types";
+import { authService } from "@/services/authService";
 import hostListingsData from "@/data/hostListings.json";
 import hostRequestsData from "@/data/hostRequests.json";
 import {
@@ -10,6 +11,8 @@ import {
   STORAGE_KEYS,
   writePersisted,
 } from "@/services/mockClient";
+import { isApiEnabled } from "@/config/apiConfig";
+import { apiHost } from "@/services/api/apiServices";
 
 const seedListings = hostListingsData as unknown as ParkingSpot[];
 const seedRequests = hostRequestsData as unknown as HostRequest[];
@@ -23,6 +26,9 @@ export interface CreateListingPayload {
   city?: string;
   landmark: string;
   nearStation: string;
+  /** Real coordinates chosen on the map (falls back to Gurugram centre). */
+  latitude?: number;
+  longitude?: number;
   pricePerHour: number;
   pricePerDay: number;
   isFree?: boolean;
@@ -45,12 +51,14 @@ async function readRequests(): Promise<HostRequest[]> {
 
 /** Returns all of the host's parking listings. */
 async function getListings(): Promise<ParkingSpot[]> {
+  if (isApiEnabled()) return apiHost.getListings();
   await delay(randomLatency());
   return readListings();
 }
 
 /** Creates a new host listing from the payload and persists it. */
 async function createListing(payload: CreateListingPayload): Promise<ParkingSpot> {
+  if (isApiEnabled()) return apiHost.createListing(payload);
   await delay(randomLatency());
 
   const template = seedListings[0];
@@ -78,8 +86,8 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     landmark: payload.landmark.trim(),
     nearStation: payload.nearStation.trim(),
     distanceMeters: 400,
-    latitude: 28.4595,
-    longitude: 77.0266,
+    latitude: payload.latitude ?? 28.4595,
+    longitude: payload.longitude ?? 77.0266,
     pricePerHour: payload.isFree ? 0 : payload.pricePerHour,
     pricePerDay: payload.isFree ? 0 : payload.pricePerDay,
     isFree: !!payload.isFree,
@@ -105,6 +113,7 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
 
 /** Returns all incoming booking requests for the host. */
 async function getRequests(): Promise<HostRequest[]> {
+  if (isApiEnabled()) return apiHost.getRequests();
   await delay(randomLatency());
   return readRequests();
 }
@@ -114,6 +123,7 @@ async function getRequests(): Promise<HostRequest[]> {
  * status, and returns the updated request.
  */
 async function respond(id: string, accept: boolean): Promise<HostRequest> {
+  if (isApiEnabled()) return apiHost.respond(id, accept);
   await delay(randomLatency());
   const all = await readRequests();
   const idx = all.findIndex((r) => r.id === id);
@@ -122,6 +132,38 @@ async function respond(id: string, accept: boolean): Promise<HostRequest> {
   }
   all[idx] = { ...all[idx], status: accept ? "accepted" : "declined" };
   await writePersisted(STORAGE_KEYS.requests, all);
+
+  // Accepting reveals the host's phone on the driver's linked booking;
+  // declining cancels it. (In demo mode you play both roles on one device.)
+  const bookingId = all[idx].bookingId;
+  if (bookingId) {
+    try {
+      const bookings = await readPersisted<Booking[]>(STORAGE_KEYS.bookings, []);
+      const bIdx = bookings.findIndex((b) => b.id === bookingId);
+      if (bIdx !== -1) {
+        if (accept) {
+          const session = await authService.getSession();
+          bookings[bIdx] = {
+            ...bookings[bIdx],
+            status: "confirmed",
+            contactUnlocked: true,
+            hostPhone: session?.phone ?? bookings[bIdx].hostPhone ?? null,
+          };
+        } else {
+          bookings[bIdx] = {
+            ...bookings[bIdx],
+            status: "cancelled",
+            contactUnlocked: false,
+            hostPhone: null,
+          };
+        }
+        await writePersisted(STORAGE_KEYS.bookings, bookings);
+      }
+    } catch {
+      // Booking sync is best-effort in demo mode.
+    }
+  }
+
   return clone(all[idx]);
 }
 

@@ -1,20 +1,20 @@
 [
   {
     "id": "ob1",
-    "title": "Find parking near every station",
-    "subtitle": "Discover verified home and near-station parking spots across Gurugram, ready when you are.",
+    "title": "Parking near any place",
+    "subtitle": "Type a company, landmark or area — see home parking listed by real people right next to it.",
     "illustration": "search"
   },
   {
     "id": "ob2",
-    "title": "Book in seconds, park with ease",
-    "subtitle": "Reserve your spot for hours or the whole day, unlock host contact, and skip the parking chaos.",
+    "title": "Request. Get accepted. Call.",
+    "subtitle": "Send a request with one tap. When the host accepts, their number appears — call and park.",
     "illustration": "book"
   },
   {
     "id": "ob3",
     "title": "Your parking friend, always",
-    "subtitle": "Trusted hosts, secure payments and friendly support. Parkmitter makes every ride stress-free.",
+    "subtitle": "No fees, no middlemen. You settle directly with the host. List your own space and earn too.",
     "illustration": "friend"
   }
 ]

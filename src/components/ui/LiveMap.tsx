@@ -13,6 +13,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   height = 170,
   zoom,
   style,
+  route,
 }) => {
   const { colors, radius, isDark } = useTheme();
   const html = buildMapHtml(markers, {
@@ -21,6 +22,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     secondaryColor: colors.secondary,
     bg: colors.surfaceAlt,
     dark: isDark,
+    route,
   });
 
   return (
