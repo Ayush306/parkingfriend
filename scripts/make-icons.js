@@ -1,6 +1,6 @@
 /**
  * make-icons.js
- * Generates Parkmitter app-icon assets (map-pin logo) per-pixel with pngjs.
+ * Generates ParkingFriend app-icon assets (map-pin logo) per-pixel with pngjs.
  *
  * Usage:  node scripts/make-icons.js
  *

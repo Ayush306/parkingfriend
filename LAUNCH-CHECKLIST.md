@@ -1,4 +1,4 @@
-# Parkmitter — Launch Checklist
+# ParkingFriend — Launch Checklist
 
 What's done, and exactly what's left before real users. Items marked 🔑 need an
 account/payment only you can create — everything else is already in the repo.
@@ -17,7 +17,7 @@ account/payment only you can create — everything else is already in the repo.
 1. 🔑 **Host the API** — Render/Railway free tier (see DEPLOYMENT.md). ~15 min.
 2. 🔑 **Play Console account** — $25 one-time → internal testing track first.
 3. **Privacy policy URL** — required (location + phone number). A one-page
-   policy hosted anywhere (even a GitHub Pages page on parkmitter.com) works.
+   policy hosted anywhere (even a GitHub Pages page on parkingfriend.com) works.
 4. 🔑 **Real SMS OTP** — right now OTP is the dev code 123456. Plug an SMS
    provider into `server/src/routes/auth.js` (the TODO hook is marked):
    MSG91 / Twilio / Fast2SMS. Costs ~₹0.15–0.25 per SMS in India. Until then,

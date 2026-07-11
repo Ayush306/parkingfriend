@@ -7,7 +7,7 @@
  * - `reverse(lat,lon)`  reverse geocoding: a coordinate -> the nearest place.
  * - `nearby(lat,lon)`   several real places/landmarks around a coordinate.
  *
- * None of these return parking spots — those are Parkmitter's own listings.
+ * None of these return parking spots — those are ParkingFriend's own listings.
  */
 
 export interface Place {

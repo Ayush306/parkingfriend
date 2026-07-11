@@ -122,7 +122,7 @@ function addHours(hhmm: string, hours: number): string {
 function normalizeUser(raw: any): User {
   return {
     id: String(raw?.id ?? ""),
-    name: raw?.name ?? "Parkmitter user",
+    name: raw?.name ?? "ParkingFriend user",
     phone: raw?.phone ?? "",
     email: raw?.email ?? undefined,
     avatar: raw?.avatar ?? undefined,

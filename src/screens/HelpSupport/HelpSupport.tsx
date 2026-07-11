@@ -256,7 +256,7 @@ export default function HelpSupport() {
   const openMail = () =>
     Linking.openURL(
       `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-        "Parkmitter support"
+        "ParkingFriend support"
       )}`
     );
   const openChat = () =>
@@ -277,7 +277,7 @@ export default function HelpSupport() {
           marginBottom: spacing.lg,
         }}
       >
-        Search our FAQs or reach the Parkmitter team any time.
+        Search our FAQs or reach the ParkingFriend team any time.
       </Text>
 
       <Input

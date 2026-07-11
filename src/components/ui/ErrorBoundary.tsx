@@ -46,7 +46,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.subtitle}>
             An unexpected error occurred. Your data is safe — just tap below to
-            get back to Parkmitter.
+            get back to ParkingFriend.
           </Text>
           <Pressable
             onPress={this.reset}

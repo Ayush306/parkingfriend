@@ -70,19 +70,19 @@ export default function About() {
     {
       icon: <Feather name="instagram" size={18} color={colors.secondary} />,
       label: "Instagram",
-      value: "@parkmitter",
+      value: "@parkingfriend",
       onPress: () => open(SOCIAL_LINKS.instagram),
     },
     {
       icon: <Feather name="twitter" size={18} color={colors.info} />,
       label: "Twitter / X",
-      value: "@parkmitter",
+      value: "@parkingfriend",
       onPress: () => open(SOCIAL_LINKS.twitter),
     },
     {
       icon: <Feather name="linkedin" size={18} color={colors.primaryDark} />,
       label: "LinkedIn",
-      value: "Parkmitter",
+      value: "ParkingFriend",
       onPress: () => open(SOCIAL_LINKS.linkedin),
     },
   ];
@@ -178,7 +178,7 @@ export default function About() {
           >
             {APP_DESCRIPTION} We believe every empty driveway is an opportunity —
             to save a commuter time and stress, and to help a host earn from
-            space that would otherwise sit idle. Parkmitter is your parking
+            space that would otherwise sit idle. ParkingFriend is your parking
             friend: warm, trusted and always nearby.
           </Text>
         </Card>
@@ -199,7 +199,7 @@ export default function About() {
             marginBottom: spacing.md,
           }}
         >
-          How Parkmitter works
+          How ParkingFriend works
         </Text>
         <Card elevated>
           {STEPS.map((step, i) => (

@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Parkmitter REST API entry point.
+ * ParkingFriend REST API entry point.
  *   npm run seed   — load demo data from the app's src/data JSONs
  *   npm start      — serve on PORT (default 4000)
  */
@@ -55,7 +55,7 @@ const PORT = Number(process.env.PORT) || 4000;
 db.init()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Parkmitter API listening on http://localhost:${PORT} (db: ${db.backend})`);
+      console.log(`ParkingFriend API listening on http://localhost:${PORT} (db: ${db.backend})`);
     });
   })
   .catch((err) => {

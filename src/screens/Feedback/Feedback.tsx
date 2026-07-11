@@ -119,7 +119,7 @@ export default function Feedback() {
                 paddingHorizontal: spacing.lg,
               }}
             >
-              Your feedback helps us make Parkmitter a better parking friend for
+              Your feedback helps us make ParkingFriend a better parking friend for
               everyone. We read every note.
             </Text>
 

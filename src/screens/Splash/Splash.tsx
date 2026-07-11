@@ -9,7 +9,7 @@ import { useTheme } from "@/theme/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 
 /**
- * Splash — animated Parkmitter brand reveal.
+ * Splash — animated ParkingFriend brand reveal.
  *
  * Shows the gradient "P" mark + wordmark + tagline with a moti fade/scale
  * intro, then auto-advances (~1.6s) to the correct entry point based on the
@@ -119,7 +119,7 @@ export default function Splash() {
               letterSpacing: 0.5,
             }}
           >
-            Parkmitter
+            ParkingFriend
           </Text>
         </MotiView>
 

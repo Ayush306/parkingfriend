@@ -1,26 +1,26 @@
 /**
- * App-wide constants for Parkmitter.
+ * App-wide constants for ParkingFriend.
  * Static, non-themed values: brand strings, support contacts, and the option
  * lists used across search filters, listing creation and booking flows.
  */
 
-export const APP_NAME = "Parkmitter";
+export const APP_NAME = "ParkingFriend";
 export const APP_TAGLINE = "Your parking friend";
 export const APP_DESCRIPTION =
   "Find and book trusted home & near-station parking — or list your empty space and earn.";
 
-export const SUPPORT_EMAIL = "help@parkmitter.in";
+export const SUPPORT_EMAIL = "help@parkingfriend.in";
 export const SUPPORT_PHONE = "+91 98110 22044";
 export const SUPPORT_WHATSAPP = "+91 98110 22044";
 export const SUPPORT_HOURS = "Mon–Sun, 7:00 AM – 11:00 PM IST";
 
 export const COMPANY = {
-  name: "Parkmitter Mobility Pvt. Ltd.",
+  name: "ParkingFriend Mobility Pvt. Ltd.",
   city: "Gurugram",
   state: "Haryana",
   country: "India",
   address: "Sector 44, Gurugram, Haryana 122003",
-  website: "www.parkmitter.in",
+  website: "www.parkingfriend.in",
 } as const;
 
 export const CURRENCY = {
@@ -30,13 +30,13 @@ export const CURRENCY = {
 } as const;
 
 export const SOCIAL_LINKS = {
-  instagram: "https://instagram.com/parkmitter",
-  twitter: "https://twitter.com/parkmitter",
-  facebook: "https://facebook.com/parkmitter",
-  linkedin: "https://linkedin.com/company/parkmitter",
+  instagram: "https://instagram.com/parkingfriend",
+  twitter: "https://twitter.com/parkingfriend",
+  facebook: "https://facebook.com/parkingfriend",
+  linkedin: "https://linkedin.com/company/parkingfriend",
 } as const;
 
-/** Metro stations Parkmitter serves in Gurugram. */
+/** Metro stations ParkingFriend serves in Gurugram. */
 export const STATIONS = [
   "Huda City Centre",
   "IFFCO Chowk",
@@ -89,7 +89,7 @@ export type AmenityId = AmenityOption["id"];
 
 /** Payment methods used in the booking + wallet flows. */
 export const PAYMENT_METHODS = [
-  { id: "wallet", label: "Parkmitter Wallet", icon: "wallet-outline" },
+  { id: "wallet", label: "ParkingFriend Wallet", icon: "wallet-outline" },
   { id: "upi", label: "UPI", icon: "phone-portrait-outline" },
   { id: "card", label: "Credit / Debit Card", icon: "card-outline" },
   { id: "netbanking", label: "Net Banking", icon: "business-outline" },

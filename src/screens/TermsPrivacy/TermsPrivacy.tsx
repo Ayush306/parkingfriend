@@ -34,7 +34,7 @@ const TERMS: Section[] = [
   },
   {
     heading: "4. Cancellations and refunds",
-    body: "You may cancel a booking before the parking start time for a full refund to your Parkmitter Wallet. Cancellations after the start time may not be eligible for a refund. Hosts who repeatedly cancel confirmed bookings may be removed from the platform.",
+    body: "You may cancel a booking before the parking start time for a full refund to your ParkingFriend Wallet. Cancellations after the start time may not be eligible for a refund. Hosts who repeatedly cancel confirmed bookings may be removed from the platform.",
   },
   {
     heading: "5. Host responsibilities",

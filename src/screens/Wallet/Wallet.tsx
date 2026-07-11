@@ -261,7 +261,7 @@ export default function Wallet() {
               fontSize: typography.sizes.xs,
             }}
           >
-            Parkmitter never handles your money. Guests settle directly with you — this is just your earnings tracker.
+            ParkingFriend never handles your money. Guests settle directly with you — this is just your earnings tracker.
           </Text>
         </View>
 

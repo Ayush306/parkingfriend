@@ -1,9 +1,9 @@
 @echo off
-title Parkmitter - Run on iPhone (Expo Go)
+title ParkingFriend - Run on iPhone (Expo Go)
 cd /d "%~dp0"
 
 echo ==================================================
-echo    Parkmitter  -  run on your iPhone (Expo Go)
+echo    ParkingFriend  -  run on your iPhone (Expo Go)
 echo ==================================================
 echo.
 echo BEFORE YOU START:

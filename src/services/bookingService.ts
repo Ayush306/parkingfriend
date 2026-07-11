@@ -17,7 +17,7 @@ import { apiBookings } from "@/services/api/apiServices";
 const seedBookings = bookingsData as unknown as Booking[];
 
 /**
- * Requesting a spot needs only the spotId — Parkmitter keeps it minimal.
+ * Requesting a spot needs only the spotId — ParkingFriend keeps it minimal.
  * Everything else is optional detail with sensible defaults.
  */
 export interface CreateBookingPayload {

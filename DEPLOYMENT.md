@@ -1,4 +1,4 @@
-# Parkmitter — Deployment Guide
+# ParkingFriend — Deployment Guide
 
 How to go from this repo to a live app: backend first, then the app pointing at it.
 
@@ -29,7 +29,7 @@ Any Node host works. Two good free options:
 2. render.com → New → Web Service → connect the repo.
 3. Settings: Root Directory `server` · Build `npm install` · Start `npm start`.
 4. Environment: add `JWT_SECRET` = a long random string. (Render sets `PORT` automatically.)
-5. Deploy → you get `https://parkmitter-api-xxxx.onrender.com`.
+5. Deploy → you get `https://parkingfriend-api-xxxx.onrender.com`.
 6. One-time seed: Render Shell → `npm run seed`.
 
 ⚠️ Free-tier notes: the service sleeps after ~15 min idle (first request takes ~30s to wake), and the **disk is ephemeral — the SQLite file resets on redeploy**. Fine for a pilot; before real users, move the data to a persistent Postgres (Render's free Postgres, Neon, or Supabase — the repository layer in `server/src/db.js` is the single file to swap; see server/README.md).
@@ -40,7 +40,7 @@ Same idea: new project from repo, root `server`, add `JWT_SECRET`, deploy. Railw
 ### After deploy
 Set the production URL in `src/config/apiConfig.ts`:
 ```ts
-export const API_URL: string = "https://parkmitter-api-xxxx.onrender.com";
+export const API_URL: string = "https://parkingfriend-api-xxxx.onrender.com";
 ```
 Then rebuild the app (below). CORS is already open on the server.
 

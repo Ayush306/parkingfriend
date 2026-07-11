@@ -1,11 +1,11 @@
 "use strict";
 
 /**
- * Storage layer for the Parkmitter API — built on @libsql/client.
+ * Storage layer for the ParkingFriend API — built on @libsql/client.
  *
  * One client, two modes (selected purely by env):
- *   - Local dev (no env needed): plain SQLite file at server/data/parkmitter.db
- *     via the default url "file:data/parkmitter.db".
+ *   - Local dev (no env needed): plain SQLite file at server/data/parkingfriend.db
+ *     via the default url "file:data/parkingfriend.db".
  *   - Production: Turso (free cloud SQLite) via TURSO_DATABASE_URL
  *     (libsql://...) + TURSO_AUTH_TOKEN.
  *
@@ -29,7 +29,7 @@ const { createClient } = require("@libsql/client");
 
 /* ───────────────────────── client ───────────────────────── */
 
-const DB_URL = process.env.TURSO_DATABASE_URL || "file:data/parkmitter.db";
+const DB_URL = process.env.TURSO_DATABASE_URL || "file:data/parkingfriend.db";
 const IS_FILE_DB = DB_URL.startsWith("file:");
 
 // Local file mode: make sure the parent directory exists (libsql won't create it).
@@ -305,7 +305,7 @@ function sortByDateDesc(field) {
 
 const FALLBACK_HOST = {
   id: "unknown",
-  name: "Parkmitter Host",
+  name: "ParkingFriend Host",
   avatar: undefined,
   rating: 0,
   reviewsCount: 0,
@@ -461,7 +461,7 @@ async function createUser({ phone, name }) {
   const row = {
     id: genId("u"),
     phone: String(phone).trim(),
-    name: name || "Parkmitter User",
+    name: name || "ParkingFriend User",
     avatar: null,
     rating: 5,
     reviewsCount: 0,

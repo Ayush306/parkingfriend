@@ -1,62 +1,62 @@
 [
   {
     "id": "f1",
-    "question": "How do I book a parking spot on Parkmitter?",
-    "answer": "Search for spots near your station or area, pick one you like, choose your date and time, add your vehicle details and pay. You'll instantly receive a booking OTP and can unlock the host's contact.",
+    "question": "How do I find parking on ParkingFriend?",
+    "answer": "Type any place, company, landmark or area name in the search box. Parking that real people have listed nearby appears with its price and distance. Tap Request on the one you want.",
     "category": "Booking"
   },
   {
     "id": "f2",
-    "question": "How do I reach the parking spot after booking?",
-    "answer": "Open your booking from the Bookings tab to see the exact address, landmark, host instructions and a map preview. Share your OTP with the host or attendant on arrival.",
+    "question": "What happens after I tap Request?",
+    "answer": "Your request goes to the host. When they accept, their phone number appears on that booking in the Bookings tab — just call them to arrange arrival and parking.",
     "category": "Booking"
   },
   {
     "id": "f3",
-    "question": "Can I cancel a booking and get a refund?",
-    "answer": "Yes. You can cancel from the booking details screen. Cancellations made before the parking start time are refunded to your Parkmitter Wallet within minutes.",
+    "question": "How do I pay?",
+    "answer": "ParkingFriend never handles money and charges no fees. You settle directly with the host — cash or UPI, whatever you both prefer.",
     "category": "Booking"
   },
   {
     "id": "f4",
-    "question": "What payment methods are supported?",
-    "answer": "You can pay using your Parkmitter Wallet, UPI, or credit and debit cards. Add money to your wallet anytime for faster checkout.",
-    "category": "Payments"
+    "question": "Why can't I see the host's number yet?",
+    "answer": "For privacy, a host's phone number is hidden until they accept your request. As soon as they do, it appears with a Call button in your Bookings tab.",
+    "category": "Safety"
   },
   {
     "id": "f5",
-    "question": "How do coupons and offers work?",
-    "answer": "Enter a valid coupon code at the payment step or pick one from the Coupons screen. The discount is applied instantly if your booking meets the minimum amount.",
-    "category": "Payments"
+    "question": "Can I cancel a request?",
+    "answer": "Yes. A pending request can be cancelled any time before the host accepts, and nothing is owed. If a host declines, the request simply closes.",
+    "category": "Booking"
   },
   {
     "id": "f6",
     "question": "How do I list my own parking space?",
-    "answer": "Tap 'List your space' from your Profile, add photos, address, availability and pricing. Once live, drivers can book it and you'll get requests to accept or decline.",
+    "answer": "Tap the Post button in the bottom bar, pin your location on the map (that's the only required step), pick a type and set a price. Your space is instantly findable by nearby drivers.",
     "category": "Hosting"
   },
   {
     "id": "f7",
-    "question": "How do I get paid as a host?",
-    "answer": "Earnings from confirmed bookings are credited to your Parkmitter Wallet after the parking is completed. You can withdraw to your bank anytime.",
+    "question": "How do I earn as a host?",
+    "answer": "Drivers send you requests for your listed space. You accept the ones you want, then settle directly with the driver when they park. ParkingFriend takes no cut.",
     "category": "Hosting"
   },
   {
     "id": "f8",
-    "question": "Is my vehicle safe at Parkmitter spots?",
-    "answer": "Many spots feature CCTV, gated access, guards and good lighting, shown as amenities on each listing. We also verify hosts to keep the community trusted and safe.",
-    "category": "Safety"
+    "question": "Can I be a host and a driver at the same time?",
+    "answer": "Yes. The same account can list spaces (in Post) and request parking (from Home) — no separate sign-up needed.",
+    "category": "Account"
   },
   {
     "id": "f9",
     "question": "What does the verified badge mean?",
-    "answer": "A verified badge means the host or user has completed identity verification with Parkmitter, adding an extra layer of trust to every booking.",
+    "answer": "It means the host or user has completed identity verification with ParkingFriend, adding an extra layer of trust before you share contact or accept a request.",
     "category": "Safety"
   },
   {
     "id": "f10",
     "question": "How do I contact support?",
-    "answer": "Reach us anytime from the Help & Support screen. You can browse FAQs, chat with our team or raise a report about a booking or spot.",
-    "category": "Support"
+    "answer": "Reach us any time from the Help & Support screen — browse these FAQs, message our team, or raise a report about a spot or request.",
+    "category": "Account"
   }
 ]

@@ -1,5 +1,5 @@
 /**
- * Parkmitter design tokens.
+ * ParkingFriend design tokens.
  * All values are fixed per the build contract. Components/screens must read
  * colors, spacing, radius, typography, shadows and gradients via useTheme()
  * and never hardcode raw values.

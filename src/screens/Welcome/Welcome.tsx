@@ -72,7 +72,7 @@ export default function Welcome() {
                 letterSpacing: 0.5,
               }}
             >
-              Parkmitter
+              ParkingFriend
             </Text>
           </MotiView>
         </SafeAreaView>

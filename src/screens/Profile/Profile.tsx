@@ -122,7 +122,7 @@ const MENU: MenuEntry[] = [
   {
     key: "about",
     title: "About",
-    subtitle: "About Parkmitter",
+    subtitle: "About ParkingFriend",
     icon: "information-circle-outline",
     route: "About",
   },
@@ -512,7 +512,7 @@ export default function Profile() {
             fontSize: typography.sizes.xs,
           }}
         >
-          Parkmitter v1.0.0 · Made in Gurugram
+          ParkingFriend v1.0.0 · Made in Gurugram
         </Text>
       </ScrollView>
 

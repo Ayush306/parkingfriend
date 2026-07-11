@@ -260,7 +260,7 @@ export default function Settings() {
       </View>
 
       <View style={styles.footer}>
-        <Badge label="Parkmitter v1.0.0" tone="neutral" size="sm" />
+        <Badge label="ParkingFriend v1.0.0" tone="neutral" size="sm" />
       </View>
 
       <ConfirmDialog

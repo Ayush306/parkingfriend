@@ -1,5 +1,5 @@
 /**
- * Formatting helpers for Parkmitter. All currency uses the Indian rupee with
+ * Formatting helpers for ParkingFriend. All currency uses the Indian rupee with
  * en-IN grouping (₹1,23,456). Dates/times are rendered in a friendly,
  * India-appropriate style.
  */

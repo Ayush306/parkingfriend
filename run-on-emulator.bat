@@ -1,5 +1,5 @@
 @echo off
-title Parkmitter - Run on Emulator (virtual phone on this PC)
+title ParkingFriend - Run on Emulator (virtual phone on this PC)
 cd /d "%~dp0"
 
 set "ANDROID_HOME=%~dp0android-sdk"
@@ -9,7 +9,7 @@ set "ADB=%ANDROID_HOME%\platform-tools\adb.exe"
 set "EMU=%ANDROID_HOME%\emulator\emulator.exe"
 
 echo ==================================================
-echo    Parkmitter  -  virtual phone on this PC
+echo    ParkingFriend  -  virtual phone on this PC
 echo ==================================================
 echo No cable, no phone needed. Ctrl+C here stops Metro;
 echo the emulator window can stay open for next time.
@@ -25,7 +25,7 @@ REM --- 1) Boot the virtual phone if it isn't already running ---
 "%ADB%" devices | findstr /C:"emulator-" >nul
 if errorlevel 1 (
   echo [1/4] Booting the virtual phone ^(first boot takes ~1-2 min^)...
-  start "Parkmitter Emulator" "%EMU%" -avd Parkmitter -netdelay none -netspeed full
+  start "ParkingFriend Emulator" "%EMU%" -avd ParkingFriend -netdelay none -netspeed full
 ) else (
   echo [1/4] Virtual phone already running.
 )
@@ -50,7 +50,7 @@ if errorlevel 1 (
 )
 
 REM --- 3) Metro + open the app ---
-echo [4/4] Starting Metro + opening Parkmitter on the virtual phone...
+echo [4/4] Starting Metro + opening ParkingFriend on the virtual phone...
 echo        Press r = reload, Ctrl+C = stop.
 echo.
 call npx expo start --android

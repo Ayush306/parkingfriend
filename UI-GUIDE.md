@@ -1,4 +1,4 @@
-# Parkmitter — UI Layout System
+# ParkingFriend — UI Layout System
 
 The single source of truth for how screens are built. Every new screen must follow this.
 
@@ -82,6 +82,6 @@ RootStack
 ## 6. Voice & content rules
 
 - Currency is always `formatCurrency` (₹, en-IN). Dates via `formatDate`.
-- No payment language anywhere — Parkmitter never moves money.
+- No payment language anywhere — ParkingFriend never moves money.
 - Empty states are encouraging and specific ("Be the first to host here"), never blank.
 - Real data only in production: no picsum/pravatar placeholders in user-facing flows once the API is live.

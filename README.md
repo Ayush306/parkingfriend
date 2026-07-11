@@ -1,8 +1,8 @@
-# Parkmitter 🅿️🤝
+# ParkingFriend 🅿️🤝
 
 **Your parking friend.**
 
-Parkmitter is a two-sided park-and-ride marketplace for India (Gurugram). Drivers
+ParkingFriend is a two-sided park-and-ride marketplace for India (Gurugram). Drivers
 find and book home / near-station parking for the day, while hosts list their empty
 parking space and earn from it. Warm, trustworthy, premium mobility feel.
 

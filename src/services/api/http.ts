@@ -1,5 +1,5 @@
 /**
- * Minimal HTTP client for the Parkmitter API.
+ * Minimal HTTP client for the ParkingFriend API.
  * JSON in/out, Bearer-token auth, 15s timeout, readable error messages.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -63,7 +63,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     if (e?.name === "AbortError") {
       throw new Error("The server took too long to respond. Please try again.");
     }
-    throw new Error("Can't reach the Parkmitter server. Check your connection.");
+    throw new Error("Can't reach the ParkingFriend server. Check your connection.");
   }
   clearTimeout(timer);
 

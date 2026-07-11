@@ -1,9 +1,9 @@
 @echo off
-title Parkmitter - Build APK (cloud)
+title ParkingFriend - Build APK (cloud)
 cd /d "%~dp0"
 
 echo ==================================================
-echo    Parkmitter  -  Build an installable APK
+echo    ParkingFriend  -  Build an installable APK
 echo    (Expo cloud build - no local Gradle needed)
 echo ==================================================
 echo.
@@ -59,7 +59,7 @@ if errorlevel 1 (
 
 echo.
 echo [3/3] Done. When the build finishes, EAS prints a URL.
-echo    Open it, tap Download, and you get Parkmitter.apk
+echo    Open it, tap Download, and you get ParkingFriend.apk
 echo    Copy it to your phone (USB / WhatsApp / Drive) and tap to install.
 echo    (Allow "Install from unknown sources" if asked.)
 echo.

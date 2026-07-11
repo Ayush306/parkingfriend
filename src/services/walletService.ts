@@ -5,7 +5,7 @@ import { isApiEnabled } from "@/config/apiConfig";
 import { apiWallet } from "@/services/api/apiServices";
 
 /**
- * Parkmitter does not process any payments. This service only tallies the
+ * ParkingFriend does not process any payments. This service only tallies the
  * "savings" you made as a driver (parking cheaply vs. commercial lots) and the
  * "profit" you earned as a host from completed bookings on your listed spaces.
  */

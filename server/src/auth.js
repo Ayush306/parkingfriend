@@ -3,13 +3,13 @@
 /**
  * JWT sign/verify helpers + requireAuth middleware.
  * Tokens carry { sub: <userId> } and are signed with JWT_SECRET
- * (dev default "parkmitter-dev-secret" — override in production).
+ * (dev default "parkingfriend-dev-secret" — override in production).
  */
 
 const jwt = require("jsonwebtoken");
 const db = require("./db");
 
-const JWT_SECRET = process.env.JWT_SECRET || "parkmitter-dev-secret";
+const JWT_SECRET = process.env.JWT_SECRET || "parkingfriend-dev-secret";
 const TOKEN_TTL = "30d";
 
 function signToken(user) {

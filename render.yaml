@@ -1,9 +1,9 @@
-# Render.com blueprint — deploys the Parkmitter API on the FREE tier.
+# Render.com blueprint — deploys the ParkingFriend API on the FREE tier.
 # In Render: New + → Blueprint → pick this repo → it reads this file.
 # The database lives in Turso (free), so Render's ephemeral disk is fine.
 services:
   - type: web
-    name: parkmitter-api
+    name: parkingfriend-api
     plan: free
     runtime: node
     rootDir: server
