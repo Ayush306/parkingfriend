@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/theme/ThemeContext";
+import { usePendingRequestCount } from "@/hooks/usePendingRequestCount";
 import { MainTabParamList } from "@/navigation/types";
 
 import Home from "@/screens/Home/Home";
@@ -37,7 +38,7 @@ const TABS: TabMeta[] = [
   },
   {
     name: "Post",
-    label: "Post",
+    label: "My Space",
     icon: "add",
     iconActive: "add",
     center: true,
@@ -59,6 +60,8 @@ const TABS: TabMeta[] = [
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { colors, spacing, radius, typography, shadows } = useTheme();
   const insets = useSafeAreaInsets();
+  // Polled in the background: how many drivers are waiting on this host.
+  const pendingRequests = usePendingRequestCount(30000);
 
   return (
     <View
@@ -123,6 +126,13 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     size={24}
                     color={colors.white}
                   />
+                  {pendingRequests > 0 ? (
+                    <View style={[styles.badge, { backgroundColor: colors.error ?? "#E5484D", borderColor: colors.surface }]}>
+                      <Text style={styles.badgeText}>
+                        {pendingRequests > 9 ? "9+" : pendingRequests}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
                 <Text
                   numberOfLines={1}
@@ -261,5 +271,22 @@ const styles = StyleSheet.create({
   },
   centerLabel: {
     letterSpacing: 0.2,
+  },
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 999,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
   },
 });

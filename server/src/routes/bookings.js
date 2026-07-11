@@ -165,10 +165,9 @@ router.post("/:id/cancel", ah(async (req, res) => {
     return res.status(409).json({ error: "A completed booking cannot be cancelled" });
   }
   // body.reason is accepted (and currently just acknowledged) — no column for it yet.
-  const updated = await db.updateBooking(booking.id, {
-    status: "cancelled",
-    contactUnlocked: false,
-  });
+  // Cancelling also retires the linked pending host request, so the host's
+  // "Incoming requests" never shows a request the driver already withdrew.
+  const updated = await db.cancelBookingWithRequest(booking);
   res.json(await db.toBooking(updated));
 }));
 

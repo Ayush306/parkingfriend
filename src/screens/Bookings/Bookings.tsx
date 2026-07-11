@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/Toast";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { bookingService } from "@/services/bookingService";
 import type { Booking } from "@/models/types";
 import { formatCurrency, formatDate } from "@/utils/format";
@@ -84,6 +85,10 @@ export default function Bookings() {
     () => bookingService.list(),
     []
   );
+
+  // The host's accept/decline must show up here (with their phone number)
+  // without the driver doing anything: refetch on focus + poll while viewing.
+  useLiveRefresh(refetch, 15000);
 
   const [tab, setTab] = useState<TabLabel>("Requested");
   const [refreshing, setRefreshing] = useState(false);

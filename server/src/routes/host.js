@@ -106,6 +106,18 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
     return res.status(400).json({ error: '"accept" must be a boolean' });
   }
 
+  // A withdrawn booking must never be resurrected: if the driver already
+  // cancelled, retire the request and tell the host instead of accepting.
+  if (accept && request.bookingId) {
+    const booking = await db.getBookingRow(request.bookingId);
+    if (booking && booking.status === "cancelled") {
+      await db.updateRequest(request.id, { status: "declined" });
+      return res
+        .status(409)
+        .json({ error: "The driver has withdrawn this request." });
+    }
+  }
+
   const wasAccepted = request.status === "accepted";
 
   // Record hosting income when a request is newly accepted so the wallet reflects it.

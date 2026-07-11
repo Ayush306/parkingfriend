@@ -524,6 +524,23 @@ async function createBookingWithRequest(bookingRow, requestRow) {
   return getRow("bookings", bookingRow.id);
 }
 
+/**
+ * Cancel a booking AND retire its linked pending host request atomically, so
+ * the host never sees (or accepts) a request the driver already withdrew.
+ */
+async function cancelBookingWithRequest(bookingRow) {
+  await init();
+  const stmts = [
+    updateStmt("bookings", bookingRow.id, { status: "cancelled", contactUnlocked: false }),
+  ];
+  const request = await findRequestByBookingId(bookingRow.id);
+  if (request && request.status === "pending") {
+    stmts.push(updateStmt("host_requests", request.id, { status: "declined" }));
+  }
+  await client.batch(stmts, "write");
+  return getRow("bookings", bookingRow.id);
+}
+
 /* ───────────────────────── repository: host requests ───────────────────────── */
 
 async function listRequestsByHost(hostId) {
@@ -533,6 +550,12 @@ async function listRequestsByHost(hostId) {
 
 async function getRequestRow(id) {
   return getRow("host_requests", id);
+}
+
+async function findRequestByBookingId(bookingId) {
+  if (!bookingId) return null;
+  const requests = await allRows("host_requests");
+  return requests.find((r) => r.bookingId === bookingId) || null;
 }
 
 async function insertRequest(row) {
@@ -638,9 +661,11 @@ module.exports = {
   insertBooking,
   updateBooking,
   createBookingWithRequest,
+  cancelBookingWithRequest,
   // host requests
   listRequestsByHost,
   getRequestRow,
+  findRequestByBookingId,
   insertRequest,
   updateRequest,
   respondToRequest,

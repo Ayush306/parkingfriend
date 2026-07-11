@@ -16,6 +16,7 @@ import { MotiView } from "moti";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { haptics } from "@/utils/haptics";
 import { hostService } from "@/services/hostService";
 import { walletService } from "@/services/walletService";
@@ -36,6 +37,14 @@ export default function Post() {
   const earnings = useAsync<WalletSummary>(() => walletService.getSummary(), []);
   const listings = useAsync<ParkingSpot[]>(() => hostService.getListings(), []);
   const requests = useAsync<HostRequest[]>(() => hostService.getRequests(), []);
+
+  // Incoming requests must appear without any manual action: refetch on every
+  // focus and poll while the host is looking at this screen.
+  useLiveRefresh(requests.refetch, 15000);
+  useLiveRefresh(() => {
+    listings.refetch();
+    earnings.refetch();
+  }, 0);
 
   const pendingRequests = (requests.data ?? []).filter(
     (r) => r.status === "pending"
@@ -105,7 +114,7 @@ export default function Post() {
               fontSize: typography.sizes.xxl,
             }}
           >
-            Post
+            My Space
           </Text>
           <Text
             style={{
