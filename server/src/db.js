@@ -54,7 +54,7 @@ const COLUMNS = {
     "verified", "responseTime", "createdAt",
   ],
   spots: [
-    "id", "hostId", "title", "type", "vehicleTypes", "address", "area", "city",
+    "id", "hostId", "title", "type", "vehicleTypes", "capacity", "address", "area", "city",
     "landmark", "nearStation", "distanceMeters", "latitude", "longitude",
     "pricePerHour", "pricePerDay", "isFree", "rating", "reviewsCount",
     "images", "amenities", "availableFrom", "availableTo", "instructions",
@@ -99,6 +99,7 @@ const DDL = [
     title TEXT NOT NULL,
     type TEXT,
     vehicleTypes TEXT,
+    capacity INTEGER DEFAULT 1,
     address TEXT,
     area TEXT,
     city TEXT,
@@ -173,6 +174,7 @@ const DDL = [
 const MIGRATIONS = [
   { table: "host_requests", column: "requesterPhone", ddl: "ALTER TABLE host_requests ADD COLUMN requesterPhone TEXT" },
   { table: "host_requests", column: "bookingId", ddl: "ALTER TABLE host_requests ADD COLUMN bookingId TEXT" },
+  { table: "spots", column: "capacity", ddl: "ALTER TABLE spots ADD COLUMN capacity INTEGER DEFAULT 1" },
 ];
 
 let initPromise = null;
@@ -341,10 +343,34 @@ function toUser(userRow) {
   };
 }
 
+/** Today's date in the server's local timezone as "YYYY-MM-DD". */
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Accepted bookings currently holding a slot at this spot.
+ * "pending" doesn't hold a slot — only what the host has accepted counts,
+ * and only for today or a future date: yesterday's parking frees its slot
+ * automatically at midnight (bookings never transition to "completed" on
+ * their own, so without the date scope a slot would be held forever).
+ */
+async function countActiveBookings(spotId) {
+  await init();
+  const rs = await client.execute({
+    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('confirmed', 'active') AND date >= ?",
+    args: [spotId, todayLocal()],
+  });
+  return Number(rs.rows[0].n) || 0;
+}
+
 /** spots row -> ParkingSpot (types.ts) with host embedded. ASYNC (host lookup). */
 async function toSpot(row) {
   if (!row) return null;
   const host = toHost(await getRow("users", row.hostId));
+  const capacity = Math.max(1, Number(row.capacity) || 1);
+  const remainingCount = Math.max(0, capacity - (await countActiveBookings(row.id)));
   return {
     id: row.id,
     title: row.title,
@@ -352,6 +378,8 @@ async function toSpot(row) {
     host,
     type: row.type,
     vehicleTypes: Array.isArray(row.vehicleTypes) ? row.vehicleTypes : ["car"],
+    capacity,
+    remainingCount,
     address: row.address || "",
     area: row.area || "",
     city: row.city || "",
@@ -655,6 +683,7 @@ module.exports = {
   getSpotRow,
   listSpotsByHost,
   insertSpot,
+  countActiveBookings,
   // bookings
   listBookingsByUser,
   getBookingRow,

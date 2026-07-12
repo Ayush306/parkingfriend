@@ -189,6 +189,8 @@ export default function SearchResults() {
           ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
           renderItem={({ item, index }) => {
             const requested = requestedIds.has(item.id);
+            const remaining = item.remainingCount ?? item.capacity ?? 1;
+            const full = remaining === 0;
             return (
               <MotiView
                 from={{ opacity: 0, translateY: 14 }}
@@ -234,17 +236,45 @@ export default function SearchResults() {
                     </Text>
                   </View>
 
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.sm }}>
+                    <View
+                      style={[
+                        styles.availPill,
+                        {
+                          backgroundColor: full ? colors.surfaceAlt : colors.success + "1A",
+                          borderRadius: radius.pill,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={full ? "close-circle-outline" : "checkmark-circle-outline"}
+                        size={13}
+                        color={full ? colors.error : colors.success}
+                      />
+                      <Text
+                        style={{
+                          marginLeft: 4,
+                          color: full ? colors.error : colors.success,
+                          fontFamily: typography.fonts.bodySemi,
+                          fontSize: typography.sizes.xs,
+                        }}
+                      >
+                        {full ? "Full" : `${remaining} left`}
+                      </Text>
+                    </View>
+                  </View>
+
                   <Pressable
-                    onPress={() => !requested && requestingId !== item.id && sendRequest(item)}
-                    disabled={requested || requestingId === item.id}
+                    onPress={() => !full && !requested && requestingId !== item.id && sendRequest(item)}
+                    disabled={full || requested || requestingId === item.id}
                     accessibilityRole="button"
-                    accessibilityLabel={requested ? "Request sent" : "Request parking"}
+                    accessibilityLabel={full ? "Currently full" : requested ? "Request sent" : "Request parking"}
                     style={({ pressed }) => [
                       styles.requestBtn,
                       {
-                        backgroundColor: requested ? colors.surfaceAlt : colors.primary,
+                        backgroundColor: requested || full ? colors.surfaceAlt : colors.primary,
                         borderRadius: radius.md,
-                        opacity: pressed ? 0.85 : 1,
+                        opacity: pressed && !full ? 0.85 : 1,
                         marginTop: spacing.md,
                       },
                     ]}
@@ -254,6 +284,13 @@ export default function SearchResults() {
                         <Ionicons name="checkmark-circle" size={16} color={colors.success} />
                         <Text style={{ marginLeft: 6, color: colors.textSecondary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
                           Requested — check Bookings
+                        </Text>
+                      </>
+                    ) : full ? (
+                      <>
+                        <Ionicons name="close-circle-outline" size={15} color={colors.textMuted} />
+                        <Text style={{ marginLeft: 6, color: colors.textMuted, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                          Currently full
                         </Text>
                       </>
                     ) : (
@@ -300,6 +337,12 @@ const styles = StyleSheet.create({
     height: 38,
     alignItems: "center",
     justifyContent: "center",
+  },
+  availPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   requestBtn: {
     flexDirection: "row",

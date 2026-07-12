@@ -48,11 +48,15 @@ export const STATIONS = [
 
 export type Station = (typeof STATIONS)[number];
 
-/** Vehicle types a spot can accept / a driver can book for. */
+/**
+ * Vehicle types a spot can accept / a driver can book for.
+ * `icon` is an Ionicons name; `mci` is the MaterialCommunityIcons name for
+ * screens that want a distinct motorbike/bicycle glyph.
+ */
 export const VEHICLE_OPTIONS = [
-  { id: "car", label: "Car", icon: "car-outline" },
-  { id: "bike", label: "Bike", icon: "bicycle-outline" },
-  { id: "suv", label: "SUV", icon: "car-outline" },
+  { id: "car", label: "Car", icon: "car-outline", mci: "car" },
+  { id: "bike", label: "Bike", icon: "bicycle-outline", mci: "motorbike" },
+  { id: "bicycle", label: "Bicycle", icon: "bicycle-outline", mci: "bicycle" },
 ] as const;
 
 export type VehicleOption = (typeof VEHICLE_OPTIONS)[number];

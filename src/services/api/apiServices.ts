@@ -59,6 +59,11 @@ function normalizeSpot(raw: any): ParkingSpot {
     vehicleTypes: asArray(raw?.vehicleTypes).length
       ? (asArray(raw?.vehicleTypes) as ParkingSpot["vehicleTypes"])
       : ["car"],
+    capacity: Math.max(1, Number(raw?.capacity ?? 1) || 1),
+    remainingCount: Math.max(
+      0,
+      Number(raw?.remainingCount ?? raw?.capacity ?? 1) || 0
+    ),
     address: raw?.address ?? "",
     area: raw?.area ?? "",
     city: raw?.city ?? "",

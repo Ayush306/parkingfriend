@@ -97,6 +97,14 @@ router.post("/", ah(async (req, res) => {
     return res.status(404).json({ error: "Parking spot not found" });
   }
 
+  // Capacity guard: no new requests once every slot is taken by an accepted
+  // booking. (Pending requests don't hold slots — the host chooses.)
+  const capacity = Math.max(1, Number(spotRow.capacity) || 1);
+  const taken = await db.countActiveBookings(spotRow.id);
+  if (taken >= capacity) {
+    return res.status(409).json({ error: "This parking is full right now — try another spot nearby." });
+  }
+
   // Everything beyond spotId is optional — validate only when provided.
   let durationHours = DEFAULT_DURATION_HOURS;
   if (body.durationHours !== undefined && body.durationHours !== null && body.durationHours !== "") {

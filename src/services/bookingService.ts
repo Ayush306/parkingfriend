@@ -63,6 +63,12 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     throw new Error("This parking spot is no longer available.");
   }
 
+  // Capacity guard (demo parity with the server): a full space takes no
+  // new requests.
+  if ((spot.remainingCount ?? spot.capacity ?? 1) <= 0) {
+    throw new Error("This parking is full right now — try another spot nearby.");
+  }
+
   const booking: Booking = {
     id: genId("bk"),
     spotId: payload.spotId,

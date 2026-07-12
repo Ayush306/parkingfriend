@@ -55,11 +55,12 @@ const TYPE_LABEL: Record<ParkingSpot["type"], string> = {
 };
 
 const VEHICLE_META: Record<
-  "car" | "bike" | "suv",
+  "car" | "bike" | "bicycle" | "suv",
   { label: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
   car: { label: "Car", icon: "car-sport-outline" },
   bike: { label: "Bike", icon: "bicycle-outline" },
+  bicycle: { label: "Bicycle", icon: "bicycle-outline" },
   suv: { label: "SUV", icon: "car-outline" },
 };
 
@@ -183,6 +184,8 @@ export default function SpotDetail() {
   }
 
   const images = spot.images.length > 0 ? spot.images : [""];
+  const capacity = spot.capacity ?? 1;
+  const remaining = spot.remainingCount ?? capacity;
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.bg }]}>
@@ -420,6 +423,46 @@ export default function SpotDetail() {
                   </Text>
                 </View>
               </View>
+              <View style={[styles.availRow, { marginTop: spacing.md }]}>
+                <View
+                  style={[
+                    styles.availIcon,
+                    {
+                      backgroundColor: remaining > 0 ? colors.primaryLight : colors.surfaceAlt,
+                      borderRadius: radius.md,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="car-outline"
+                    size={20}
+                    color={remaining > 0 ? colors.primary : colors.textMuted}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <Text
+                    style={{
+                      color: colors.textSecondary,
+                      fontFamily: typography.fonts.body,
+                      fontSize: typography.sizes.xs,
+                    }}
+                  >
+                    Spots free
+                  </Text>
+                  <Text
+                    style={{
+                      marginTop: 2,
+                      color: remaining > 0 ? colors.success : colors.error,
+                      fontFamily: typography.fonts.bodySemi,
+                      fontSize: typography.sizes.md,
+                    }}
+                  >
+                    {remaining > 0
+                      ? `${remaining} of ${capacity} ${capacity === 1 ? "spot" : "spots"} free`
+                      : "Currently full"}
+                  </Text>
+                </View>
+              </View>
             </Card>
           </View>
 
@@ -634,15 +677,20 @@ export default function SpotDetail() {
               label={
                 requested
                   ? "Requested ✓"
-                  : spot.available
-                  ? "Request to park"
-                  : "Currently full"
+                  : !spot.available ||
+                    (spot.remainingCount ?? spot.capacity ?? 1) <= 0
+                  ? "Currently full"
+                  : "Request to park"
               }
               variant="gradient"
               size="lg"
               fullWidth
               loading={requesting}
-              disabled={!spot.available || requested}
+              disabled={
+                !spot.available ||
+                requested ||
+                (spot.remainingCount ?? spot.capacity ?? 1) <= 0
+              }
               iconRight={
                 requested ? undefined : (
                   <Ionicons name="paper-plane" size={17} color={colors.white} />

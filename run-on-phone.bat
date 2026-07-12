@@ -55,6 +55,14 @@ echo [1/3] Connected phone:
 echo.
 echo    If it says "unauthorized", tap ALLOW on the phone, then rerun.
 echo.
+echo [prep] Freeing port 8081 if something is already using it...
+echo    ^(A leftover Metro / web-preview server on 8081 makes Expo Go pull a
+echo     bad bundle over USB -^> "JSBigString::fromPath" error / stuck on logo.^)
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8081" ^| findstr LISTENING') do (
+  echo    Stopping stale server on 8081 ^(PID %%p^)...
+  taskkill /F /PID %%p >nul 2>&1
+)
+echo.
 echo [2/3] Setting up USB tunnel...
 "%ADB%" reverse tcp:8081 tcp:8081
 echo.

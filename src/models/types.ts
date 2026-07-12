@@ -20,13 +20,20 @@ export interface Host {
   responseTime: string;
 }
 
+/** Vehicle kinds a space can hold. "suv" is legacy — new listings use car/bike/bicycle. */
+export type VehicleType = "car" | "bike" | "bicycle" | "suv";
+
 export interface ParkingSpot {
   id: string;
   title: string;
   hostId: string;
   host: Host;
   type: "home" | "driveway" | "garage" | "openlot" | "basement";
-  vehicleTypes: ("car" | "bike" | "suv")[];
+  vehicleTypes: VehicleType[];
+  /** How many vehicles fit in this space (host sets it when listing). */
+  capacity: number;
+  /** capacity minus currently accepted bookings — what's actually left right now. */
+  remainingCount: number;
   address: string;
   area: string;
   city: string;

@@ -1,4 +1,4 @@
-import type { Booking, HostRequest, ParkingSpot } from "@/models/types";
+import type { Booking, HostRequest, ParkingSpot, VehicleType } from "@/models/types";
 import { authService } from "@/services/authService";
 import hostListingsData from "@/data/hostListings.json";
 import hostRequestsData from "@/data/hostRequests.json";
@@ -20,7 +20,10 @@ const seedRequests = hostRequestsData as unknown as HostRequest[];
 export interface CreateListingPayload {
   title: string;
   type: ParkingSpot["type"];
-  vehicleTypes: ("car" | "bike" | "suv")[];
+  /** Mandatory — what fits in the space (car / bike / bicycle). */
+  vehicleTypes: VehicleType[];
+  /** Mandatory — how many vehicles fit (1–50). */
+  capacity: number;
   address: string;
   area: string;
   city?: string;
@@ -41,7 +44,16 @@ export interface CreateListingPayload {
 
 /** Reads the host's listings from storage, seeded from JSON. */
 async function readListings(): Promise<ParkingSpot[]> {
-  return readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, seedListings);
+  const listings = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, seedListings);
+  // Listings created before the capacity feature default to 1 empty slot.
+  return listings.map((s) => ({
+    ...s,
+    capacity: Math.max(1, Number(s.capacity) || 1),
+    remainingCount: Math.max(
+      0,
+      Number(s.remainingCount ?? s.capacity ?? 1) || 0
+    ),
+  }));
 }
 
 /** Reads incoming host requests from storage, seeded from JSON. */
@@ -80,6 +92,8 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     host,
     type: payload.type,
     vehicleTypes: payload.vehicleTypes.length ? payload.vehicleTypes : ["car"],
+    capacity: Math.max(1, Math.round(payload.capacity || 1)),
+    remainingCount: Math.max(1, Math.round(payload.capacity || 1)),
     address: payload.address.trim(),
     area: payload.area.trim(),
     city: (payload.city ?? "Gurugram").trim(),
@@ -130,6 +144,30 @@ async function respond(id: string, accept: boolean): Promise<HostRequest> {
   if (idx === -1) {
     throw new Error("Request not found.");
   }
+  // Capacity guard (demo parity with the server): accepting must consume a
+  // slot on the listed space, and a full space can't accept more.
+  if (accept && all[idx].status !== "accepted") {
+    try {
+      const listings = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, []);
+      const spotIdx = listings.findIndex((s) => s.title === all[idx].spotTitle);
+      if (spotIdx !== -1) {
+        const spot = listings[spotIdx];
+        const capacity = Math.max(1, Number(spot.capacity) || 1);
+        const remaining = Math.max(0, Number(spot.remainingCount ?? capacity) || 0);
+        if (remaining <= 0) {
+          throw new Error(
+            `All ${capacity} spot${capacity > 1 ? "s" : ""} are already taken. Decline this request or wait for a spot to free up.`
+          );
+        }
+        listings[spotIdx] = { ...spot, capacity, remainingCount: remaining - 1 };
+        await writePersisted(STORAGE_KEYS.listings, listings);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("already taken")) throw e;
+      // Any storage hiccup: accept anyway (demo mode is best-effort).
+    }
+  }
+
   all[idx] = { ...all[idx], status: accept ? "accepted" : "declined" };
   await writePersisted(STORAGE_KEYS.requests, all);
 

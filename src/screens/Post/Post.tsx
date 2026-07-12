@@ -232,7 +232,7 @@ export default function Post() {
                   </Text>
                 </View>
                 <View style={[styles.vehiclePill, { backgroundColor: colors.surfaceAlt }]}>
-                  <Ionicons name={r.vehicleType === "bike" ? "bicycle-outline" : "car-outline"} size={12} color={colors.textSecondary} />
+                  <Ionicons name={r.vehicleType === "bike" || r.vehicleType === "bicycle" ? "bicycle-outline" : "car-outline"} size={12} color={colors.textSecondary} />
                   <Text style={{ marginLeft: 3, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: 11, textTransform: "capitalize" }}>
                     {r.vehicleType}
                   </Text>
@@ -329,6 +329,19 @@ export default function Post() {
                       <View style={{ width: 6, height: 6, borderRadius: 3, marginRight: 4, backgroundColor: sp.available ? colors.success : colors.textMuted }} />
                       <Text style={{ color: sp.available ? colors.success : colors.textMuted, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
                         {sp.available ? "Active" : "Paused"}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                    <View style={[styles.spaceStatus, { backgroundColor: (sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primaryLight : colors.surfaceAlt }]}>
+                      <Ionicons
+                        name="car-outline"
+                        size={11}
+                        color={(sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primary : colors.textMuted}
+                        style={{ marginRight: 3 }}
+                      />
+                      <Text style={{ color: (sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primary : colors.textMuted, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
+                        {sp.remainingCount ?? sp.capacity ?? 1}/{sp.capacity ?? 1} free
                       </Text>
                     </View>
                   </View>

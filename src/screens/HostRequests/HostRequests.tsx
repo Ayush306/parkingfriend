@@ -28,6 +28,7 @@ const FILTERS = ["Pending", "All"] as const;
 
 function vehicleIcon(type: string): keyof typeof Ionicons.glyphMap {
   if (type === "bike") return "bicycle-outline";
+  if (type === "bicycle") return "bicycle-outline";
   if (type === "suv") return "car-outline";
   return "car-sport-outline";
 }

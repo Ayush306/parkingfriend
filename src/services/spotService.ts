@@ -1,4 +1,4 @@
-import type { ParkingSpot } from "@/models/types";
+import type { ParkingSpot, VehicleType } from "@/models/types";
 import spotsData from "@/data/spots.json";
 import {
   clone,
@@ -21,7 +21,15 @@ const seedSpots = spotsData as unknown as ParkingSpot[];
 async function readAllSpots(): Promise<ParkingSpot[]> {
   const listed = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, []);
   const seen = new Set(seedSpots.map((s) => s.id));
-  return [...seedSpots, ...listed.filter((s) => !seen.has(s.id))];
+  return [...seedSpots, ...listed.filter((s) => !seen.has(s.id))].map((s) => ({
+    ...s,
+    // Older local listings pre-date capacity — default them to 1 slot.
+    capacity: Math.max(1, Number(s.capacity) || 1),
+    remainingCount: Math.max(
+      0,
+      Number(s.remainingCount ?? s.capacity ?? 1) || 0
+    ),
+  }));
 }
 
 export interface SpotFilters {
@@ -30,7 +38,7 @@ export interface SpotFilters {
   /** Filter by parking spot type. */
   type?: ParkingSpot["type"] | null;
   /** Filter by supported vehicle type. */
-  vehicleType?: "car" | "bike" | "suv" | null;
+  vehicleType?: VehicleType | null;
   /** Only spots at or below this per-day price. */
   maxPrice?: number | null;
   /** Only spots near this station name. */

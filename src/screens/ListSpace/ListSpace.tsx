@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { MotiView } from "moti";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 
@@ -30,11 +30,15 @@ import { haptics } from "@/utils/haptics";
 import { formatCurrency } from "@/utils/format";
 import { hostService, type CreateListingPayload } from "@/services/hostService";
 import { placesService, type Place } from "@/services/placesService";
-import { SPOT_TYPE_OPTIONS, type SpotTypeId } from "@/constants";
-import type { ParkingSpot } from "@/models/types";
+import { SPOT_TYPE_OPTIONS, VEHICLE_OPTIONS, type SpotTypeId } from "@/constants";
+import type { ParkingSpot, VehicleType } from "@/models/types";
 
 /** Gurugram centre — where the map starts before a location is chosen. */
 const DEFAULT_CENTER = { latitude: 28.4595, longitude: 77.0266 };
+
+/** Capacity stepper bounds (the server allows up to 50; the form keeps it simple). */
+const CAPACITY_MIN = 1;
+const CAPACITY_MAX = 20;
 
 interface Picked {
   latitude: number;
@@ -52,7 +56,7 @@ export default function ListSpace() {
   const toast = useToast();
   const { colors, spacing, typography, radius } = useTheme();
 
-  // --- location (the only mandatory input) ---
+  // --- location (mandatory) ---
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
@@ -60,11 +64,15 @@ export default function ListSpace() {
   const [locating, setLocating] = useState(false);
   const debouncedQuery = useDebounce(query, 350);
 
-  // --- optional details ---
+  // --- what fits, how many, price (mandatory) ---
   const [type, setType] = useState<SpotTypeId>("home");
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
+  const [capacity, setCapacity] = useState(1);
+  const [price, setPrice] = useState("");
+
+  // --- optional details ---
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");
-  const [price, setPrice] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<ParkingSpot | null>(null);
@@ -174,10 +182,37 @@ export default function ListSpace() {
     }
   }, [toast]);
 
+  // Toggle a vehicle-type chip (multi-select — a space can fit car AND bike).
+  const toggleVehicleType = useCallback((id: VehicleType) => {
+    haptics.selection();
+    setVehicleTypes((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
+    );
+  }, []);
+
+  // Step the capacity up or down, clamped to the stepper bounds.
+  const changeCapacity = useCallback((delta: number) => {
+    haptics.selection();
+    setCapacity((prev) =>
+      Math.min(CAPACITY_MAX, Math.max(CAPACITY_MIN, prev + delta))
+    );
+  }, []);
+
   const handlePublish = async () => {
     if (!picked) {
       haptics.error();
       toast.show("Pick your parking location on the map first.", "error");
+      return;
+    }
+    if (vehicleTypes.length === 0) {
+      haptics.error();
+      toast.show("Select at least one vehicle type that fits your space.", "error");
+      return;
+    }
+    const priceNum = parseInt(price.replace(/[^0-9]/g, ""), 10);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      haptics.error();
+      toast.show("Enter your price per day — at least ₹1.", "error");
       return;
     }
     setSubmitting(true);
@@ -191,13 +226,12 @@ export default function ListSpace() {
       const autoTitle = `${typeLabel} parking${
         shortLabel ? ` near ${shortLabel}` : ""
       }`;
-      const priceNum = parseInt(price.replace(/[^0-9]/g, ""), 10);
-      const hasPrice = !isNaN(priceNum) && priceNum > 0;
 
       const payload: CreateListingPayload = {
         title: title.trim() || autoTitle,
         type,
-        vehicleTypes: ["car"],
+        vehicleTypes,
+        capacity,
         address: address.trim(),
         area: shortLabel,
         landmark:
@@ -205,9 +239,9 @@ export default function ListSpace() {
         nearStation: shortLabel,
         latitude: picked.latitude,
         longitude: picked.longitude,
-        pricePerHour: hasPrice ? Math.max(10, Math.round(priceNum / 6)) : 0,
-        pricePerDay: hasPrice ? priceNum : 0,
-        isFree: !hasPrice,
+        pricePerHour: Math.max(1, Math.round(priceNum / 8)),
+        pricePerDay: priceNum,
+        isFree: false,
         amenities: [],
         availableFrom: "08:00",
         availableTo: "20:00",
@@ -336,7 +370,7 @@ export default function ListSpace() {
       <Header
         showBack
         title="List your space"
-        subtitle="Just pin your location — that's the only must."
+        subtitle="Pin your location, pick what fits, set capacity and a price."
         onBack={() => navigation.goBack()}
       />
 
@@ -628,9 +662,145 @@ export default function ListSpace() {
         </View>
       </Card>
 
+      {/* What fits here? (mandatory) */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <View style={styles.sectionHead}>
+          <Text
+            style={{
+              color: colors.text,
+              fontFamily: typography.fonts.heading,
+              fontSize: typography.sizes.md,
+            }}
+          >
+            What fits here?
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+            }}
+          >
+            required
+          </Text>
+        </View>
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontFamily: typography.fonts.body,
+            fontSize: typography.sizes.sm,
+            marginBottom: spacing.sm,
+          }}
+        >
+          Pick every vehicle type your space can take.
+        </Text>
+        <View style={styles.chipWrap}>
+          {VEHICLE_OPTIONS.map((opt) => {
+            const selected = vehicleTypes.includes(opt.id);
+            return (
+              <View key={opt.id} style={styles.chipItem}>
+                <Chip
+                  label={opt.label}
+                  selected={selected}
+                  onPress={() => toggleVehicleType(opt.id)}
+                  icon={
+                    <MaterialCommunityIcons
+                      name={opt.mci as any}
+                      size={15}
+                      color={selected ? colors.white : colors.textSecondary}
+                    />
+                  }
+                />
+              </View>
+            );
+          })}
+        </View>
+      </Card>
+
+      {/* How many can park? (mandatory) */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <View style={styles.sectionHead}>
+          <Text
+            style={{
+              color: colors.text,
+              fontFamily: typography.fonts.heading,
+              fontSize: typography.sizes.md,
+            }}
+          >
+            How many can park?
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+            }}
+          >
+            required
+          </Text>
+        </View>
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontFamily: typography.fonts.body,
+            fontSize: typography.sizes.sm,
+            marginBottom: spacing.md,
+          }}
+        >
+          Number of vehicles that fit at once.
+        </Text>
+        <View style={styles.stepperRow}>
+          <Pressable
+            onPress={() => changeCapacity(-1)}
+            disabled={capacity <= CAPACITY_MIN}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease capacity"
+            style={({ pressed }) => [
+              styles.stepBtn,
+              {
+                backgroundColor: pressed ? colors.primaryLight : colors.surfaceAlt,
+                borderColor: colors.border,
+                borderRadius: radius.pill,
+                opacity: capacity <= CAPACITY_MIN ? 0.4 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="remove" size={22} color={colors.primary} />
+          </Pressable>
+          <Text
+            style={{
+              minWidth: 72,
+              textAlign: "center",
+              color: colors.text,
+              fontFamily: typography.fonts.headingBold,
+              fontSize: typography.sizes.xxl,
+            }}
+          >
+            {capacity}
+          </Text>
+          <Pressable
+            onPress={() => changeCapacity(1)}
+            disabled={capacity >= CAPACITY_MAX}
+            accessibilityRole="button"
+            accessibilityLabel="Increase capacity"
+            style={({ pressed }) => [
+              styles.stepBtn,
+              {
+                backgroundColor: pressed ? colors.primaryLight : colors.surfaceAlt,
+                borderColor: colors.border,
+                borderRadius: radius.pill,
+                opacity: capacity >= CAPACITY_MAX ? 0.4 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="add" size={22} color={colors.primary} />
+          </Pressable>
+        </View>
+      </Card>
+
       {/* Optional details */}
       <Card elevated style={{ marginBottom: spacing.lg }}>
-        <View style={styles.optionalHead}>
+        <View style={styles.sectionHead}>
           <Text
             style={{
               color: colors.text,
@@ -668,12 +838,35 @@ export default function ListSpace() {
             <Ionicons name="home-outline" size={18} color={colors.textMuted} />
           }
         />
-        <View style={{ height: spacing.md }} />
+      </Card>
+
+      {/* Price (mandatory) */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <View style={styles.sectionHead}>
+          <Text
+            style={{
+              color: colors.text,
+              fontFamily: typography.fonts.heading,
+              fontSize: typography.sizes.md,
+            }}
+          >
+            Set your price
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+            }}
+          >
+            required
+          </Text>
+        </View>
         <Input
           label="Price per day"
           value={price}
           onChangeText={(t) => setPrice(t.replace(/[^0-9]/g, ""))}
-          placeholder="Leave blank to list as free"
+          placeholder="e.g. 100"
           keyboardType="number-pad"
           maxLength={5}
           iconLeft={
@@ -709,8 +902,8 @@ export default function ListSpace() {
           lineHeight: 18,
         }}
       >
-        Only the map location is required. You can add photos, timings and more
-        after publishing.
+        Location, what fits, how many and price per day are required. You can
+        add photos, timings and more after publishing.
       </Text>
     </Screen>
   );
@@ -758,11 +951,23 @@ const styles = StyleSheet.create({
     marginRight: 8,
     marginBottom: 8,
   },
-  optionalHead: {
+  sectionHead: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
+  },
+  stepperRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
   },
   summaryRow: {
     flexDirection: "row",

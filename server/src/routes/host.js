@@ -23,7 +23,8 @@ router.use(requireAuth);
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const SPOT_TYPES = ["home", "driveway", "garage", "openlot", "basement"];
-const VEHICLE_TYPES = ["car", "bike", "suv"];
+const VEHICLE_TYPES = ["car", "bike", "bicycle", "suv"]; // suv kept for legacy rows
+const MAX_CAPACITY = 50;
 
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -46,12 +47,27 @@ router.post("/listings", ah(async (req, res) => {
     return res.status(400).json({ error: '"vehicleTypes" must be an array' });
   }
   const vehicleTypes = p.vehicleTypes.filter((v) => VEHICLE_TYPES.includes(v));
-  const isFree = !!p.isFree;
-  const pricePerHour = Number(p.pricePerHour);
-  const pricePerDay = Number(p.pricePerDay);
-  if (!isFree && (!Number.isFinite(pricePerHour) || pricePerHour < 0 || !Number.isFinite(pricePerDay) || pricePerDay < 0)) {
-    return res.status(400).json({ error: '"pricePerHour" and "pricePerDay" must be non-negative numbers' });
+  // Mandatory: the host must say what fits (car / bike / bicycle).
+  if (!vehicleTypes.length) {
+    return res.status(400).json({ error: "Pick at least one vehicle type (car, bike or bicycle)" });
   }
+  // Mandatory: how many vehicles fit. Defaults to 1 for old clients.
+  let capacity = 1;
+  if (p.capacity !== undefined && p.capacity !== null && p.capacity !== "") {
+    capacity = Number(p.capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_CAPACITY) {
+      return res.status(400).json({ error: `"capacity" must be a whole number between 1 and ${MAX_CAPACITY}` });
+    }
+  }
+  const isFree = !!p.isFree;
+  const pricePerDay = Number(p.pricePerDay);
+  // Mandatory: a real price (unless the host explicitly lists it as free).
+  if (!isFree && (!Number.isFinite(pricePerDay) || pricePerDay <= 0)) {
+    return res.status(400).json({ error: "A price per day is required (or mark the space as free)" });
+  }
+  const pricePerHour = Number.isFinite(Number(p.pricePerHour)) && Number(p.pricePerHour) >= 0
+    ? Number(p.pricePerHour)
+    : Math.max(1, Math.round(pricePerDay / 8));
   const latitude = Number.isFinite(Number(p.latitude)) ? Number(p.latitude) : 28.4595;
   const longitude = Number.isFinite(Number(p.longitude)) ? Number(p.longitude) : 77.0266;
 
@@ -61,7 +77,8 @@ router.post("/listings", ah(async (req, res) => {
     hostId: req.user.id,
     title: p.title.trim(),
     type: p.type,
-    vehicleTypes: vehicleTypes.length ? vehicleTypes : ["car"],
+    vehicleTypes,
+    capacity,
     address: p.address.trim(),
     area: p.area.trim(),
     city: isNonEmptyString(p.city) ? p.city.trim() : "Gurugram",
@@ -119,6 +136,22 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
   }
 
   const wasAccepted = request.status === "accepted";
+
+  // Capacity guard: don't let a host accept more vehicles than the space holds.
+  // (Check-then-act: two literally simultaneous accepts could oversell by one.
+  //  Acceptable for the pilot — the app disables the button while responding.)
+  if (accept && !wasAccepted && request.spotId) {
+    const spotRow = await db.getSpotRow(request.spotId);
+    if (spotRow) {
+      const capacity = Math.max(1, Number(spotRow.capacity) || 1);
+      const taken = await db.countActiveBookings(request.spotId);
+      if (taken >= capacity) {
+        return res.status(409).json({
+          error: `All ${capacity} spot${capacity > 1 ? "s" : ""} at "${spotRow.title}" are already taken. Decline this request or wait for a spot to free up.`,
+        });
+      }
+    }
+  }
 
   // Record hosting income when a request is newly accepted so the wallet reflects it.
   let earningRow = null;
