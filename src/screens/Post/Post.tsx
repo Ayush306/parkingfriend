@@ -39,12 +39,13 @@ export default function Post() {
   const listings = useAsync<ParkingSpot[]>(() => hostService.getListings(), []);
   const requests = useAsync<HostRequest[]>(() => hostService.getRequests(), []);
 
-  // Incoming requests must appear without any manual action: refetch on every
-  // focus and poll while the host is looking at this screen.
-  useLiveRefresh(requests.refetch, 15000);
+  // Incoming requests stay current WITHOUT a visible reload: refresh on focus,
+  // then a silent 30s background refresh while this screen is in front (paused
+  // when the app is backgrounded). Listings/earnings only refresh on focus.
+  useLiveRefresh(requests.refetchSilent, 30000);
   useLiveRefresh(() => {
-    listings.refetch();
-    earnings.refetch();
+    listings.refetchSilent();
+    earnings.refetchSilent();
   }, 0);
 
   const pendingRequests = (requests.data ?? []).filter(
@@ -203,7 +204,7 @@ export default function Post() {
           ) : null}
         </View>
 
-        {requests.loading ? (
+        {requests.loading && !requests.data ? (
           <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.sm }]}>
             <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
               Loading requests…

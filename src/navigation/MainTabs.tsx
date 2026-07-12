@@ -60,8 +60,10 @@ const TABS: TabMeta[] = [
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { colors, spacing, radius, typography, shadows } = useTheme();
   const insets = useSafeAreaInsets();
-  // Polled in the background: how many drivers are waiting on this host.
-  const pendingRequests = usePendingRequestCount(30000);
+  // Gentle cross-tab badge poll (60s, foreground-only). The My Space screen
+  // refreshes its own list faster while open; the badge just needs to catch a
+  // new request when the host is on another tab.
+  const pendingRequests = usePendingRequestCount(60000);
 
   return (
     <View

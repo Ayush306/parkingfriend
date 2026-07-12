@@ -81,14 +81,15 @@ export default function Bookings() {
   const { colors, spacing, typography, radius } = useTheme();
   const toast = useToast();
 
-  const { data, loading, error, refetch } = useAsync<Booking[]>(
+  const { data, loading, error, refetch, refetchSilent } = useAsync<Booking[]>(
     () => bookingService.list(),
     []
   );
 
-  // The host's accept/decline must show up here (with their phone number)
-  // without the driver doing anything: refetch on focus + poll while viewing.
-  useLiveRefresh(refetch, 15000);
+  // The host's accept/decline shows up here (with their phone number) without
+  // the driver doing anything — via a silent, no-flicker background refresh on
+  // focus, then gently while viewing (paused when the app is backgrounded).
+  useLiveRefresh(refetchSilent, 30000);
 
   const [tab, setTab] = useState<TabLabel>("Requested");
   const [refreshing, setRefreshing] = useState(false);

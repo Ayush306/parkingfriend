@@ -4,8 +4,14 @@ export interface UseAsyncResult<T> {
   data: T | null;
   loading: boolean;
   error: string | null;
-  /** Re-runs the async function. */
+  /** Re-runs the async function, showing the loading state. */
   refetch: () => void;
+  /**
+   * Re-runs WITHOUT touching loading/error — for background polls that must
+   * not flicker the UI. On success it swaps in fresh data; on failure it
+   * keeps the last good data (a dropped poll shouldn't blank the screen).
+   */
+  refetchSilent: () => void;
   /** Locally overrides the current data (e.g. after an optimistic update). */
   setData: (updater: T | ((prev: T | null) => T)) => void;
 }
@@ -31,31 +37,38 @@ export function useAsync<T>(
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
-  const run = useCallback(async () => {
+  const run = useCallback(async (silent = false) => {
     const currentCall = ++callIdRef.current;
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const result = await fnRef.current();
       if (mountedRef.current && currentCall === callIdRef.current) {
         setDataState(result);
       }
     } catch (e: unknown) {
-      if (mountedRef.current && currentCall === callIdRef.current) {
+      // A silent (background) failure is swallowed — the last good data stays
+      // on screen instead of flashing an error during a routine poll.
+      if (mountedRef.current && currentCall === callIdRef.current && !silent) {
         const message =
           e instanceof Error ? e.message : "Something went wrong. Please try again.";
         setError(message);
       }
     } finally {
-      if (mountedRef.current && currentCall === callIdRef.current) {
+      if (mountedRef.current && currentCall === callIdRef.current && !silent) {
         setLoading(false);
       }
     }
   }, []);
 
+  const refetch = useCallback(() => run(false), [run]);
+  const refetchSilent = useCallback(() => run(true), [run]);
+
   useEffect(() => {
     mountedRef.current = true;
-    run();
+    run(false);
     return () => {
       mountedRef.current = false;
     };
@@ -70,5 +83,5 @@ export function useAsync<T>(
     );
   }, []);
 
-  return { data, loading, error, refetch: run, setData };
+  return { data, loading, error, refetch, refetchSilent, setData };
 }
