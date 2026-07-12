@@ -27,6 +27,11 @@ export interface LiveMapProps {
    * distance/duration badge. Falls back to the normal marker view on failure.
    */
   route?: LiveMapRoute;
+  /**
+   * Whether tapping the inline map opens the full-screen interactive map
+   * (with pinch-zoom, drag, GPS locate and directions). Default true.
+   */
+  expandable?: boolean;
 }
 
 export interface BuildMapOptions {
@@ -37,6 +42,13 @@ export interface BuildMapOptions {
   dark?: boolean;
   /** Optional driving route to draw (see LiveMapProps.route). */
   route?: LiveMapRoute;
+  /**
+   * true  → full gestures: drag, pinch-zoom, double-tap, zoom buttons.
+   * false → calm inline preview: no gestures, so page scrolling stays smooth.
+   */
+  interactive?: boolean;
+  /** The user's GPS position — drawn as a pulsing blue dot and kept in view. */
+  userLocation?: { latitude: number; longitude: number } | null;
 }
 
 /**
@@ -65,8 +77,10 @@ export function buildMapHtml(
     ? "© Mapbox © OpenStreetMap"
     : "© OpenStreetMap © CARTO";
   const zoom = opts.zoom ?? 15;
+  const interactive = opts.interactive !== false;
   const markersJson = JSON.stringify(markers ?? []);
   const routeJson = JSON.stringify(opts.route ?? null);
+  const userJson = JSON.stringify(opts.userLocation ?? null);
   const badgeBg = opts.dark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.95)";
   const badgeFg = opts.dark ? "#E2E8F0" : "#0F172A";
 
@@ -78,7 +92,9 @@ export function buildMapHtml(
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; background: ${opts.bg}; }
-  .pm-pin { width: 20px; height: 20px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.45); }
+  .pm-pin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+  .pm-pin-primary { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.45); }
+  .pm-you { width: 16px; height: 16px; border-radius: 50%; background: #2E7CF6; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(46,124,246,0.25), 0 1px 5px rgba(0,0,0,0.4); }
   .pm-route-badge { padding: 6px 12px; border-radius: 999px; background: ${badgeBg}; color: ${badgeFg}; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 1px 6px rgba(0,0,0,0.25); white-space: nowrap; pointer-events: none; }
   .leaflet-control-attribution { font-size: 9px; }
 </style>
@@ -89,19 +105,41 @@ export function buildMapHtml(
 <script>
   var MARKERS = ${markersJson};
   var ROUTE = ${routeJson};
+  var USER = ${userJson};
+  var INTERACTIVE = ${JSON.stringify(interactive)};
   var PRIMARY = ${JSON.stringify(opts.primaryColor)};
   var SECONDARY = ${JSON.stringify(opts.secondaryColor)};
   try {
-    var map = L.map('map', { zoomControl: true, attributionControl: true, scrollWheelZoom: false });
+    // Inline previews turn ALL gestures off so the page scrolls smoothly
+    // under a finger; the full-screen map turns everything on.
+    var map = L.map('map', {
+      zoomControl: INTERACTIVE,
+      attributionControl: true,
+      scrollWheelZoom: INTERACTIVE,
+      dragging: INTERACTIVE,
+      touchZoom: INTERACTIVE,
+      doubleClickZoom: INTERACTIVE,
+      boxZoom: INTERACTIVE,
+      keyboard: INTERACTIVE,
+    });
     L.tileLayer(${JSON.stringify(tileUrl)}, { tileSize: ${tileSize}, zoomOffset: ${zoomOffset}, subdomains: ${JSON.stringify(subdomains)}, maxZoom: 19, attribution: ${JSON.stringify(attribution)} }).addTo(map);
     var pts = [];
     MARKERS.forEach(function (m) {
       var color = m.primary ? PRIMARY : SECONDARY;
-      var icon = L.divIcon({ className: '', html: '<div class="pm-pin" style="background:' + color + '"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
+      var cls = m.primary ? 'pm-pin-primary' : 'pm-pin';
+      var size = m.primary ? 16 : 12;
+      var icon = L.divIcon({ className: '', html: '<div class="' + cls + '" style="background:' + color + '"></div>', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
       var mk = L.marker([m.latitude, m.longitude], { icon: icon }).addTo(map);
       if (m.title) { mk.bindPopup(m.title); }
       pts.push([m.latitude, m.longitude]);
     });
+    if (USER && isFinite(USER.latitude) && isFinite(USER.longitude)) {
+      var youIcon = L.divIcon({ className: '', html: '<div class="pm-you"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+      L.marker([USER.latitude, USER.longitude], { icon: youIcon, zIndexOffset: 1000 })
+        .addTo(map)
+        .bindPopup('You are here');
+      pts.push([USER.latitude, USER.longitude]);
+    }
     function fitToMarkers() {
       if (pts.length === 1) { map.setView(pts[0], ${zoom}); }
       else if (pts.length > 1) { map.fitBounds(pts, { padding: [40, 40] }); }
