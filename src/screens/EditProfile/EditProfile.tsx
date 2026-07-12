@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, KeyboardAvoidingView, Platform } fro
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import * as ImagePicker from "expo-image-picker";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
@@ -19,12 +20,11 @@ import { userService } from "@/services/userService";
 import { haptics } from "@/utils/haptics";
 import type { User } from "@/models/types";
 
-// A small pool of avatar options the user can "mock" switch between.
-const AVATAR_OPTIONS = [12, 5, 15, 32, 45, 60, 8, 25].map(
-  (n) => `https://i.pravatar.cc/150?img=${n}`
-);
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Cap on the stored avatar data URI (~600KB of base64) so it stays small
+ *  enough to live on the user row and travel with every listing's host. */
+const MAX_AVATAR_CHARS = 800000;
 
 export default function EditProfile() {
   const navigation = useNavigation<any>();
@@ -66,14 +66,37 @@ export default function EditProfile() {
     );
   }, [profile, name, email, avatar]);
 
-  const cycleAvatar = useCallback(() => {
-    haptics.selection();
-    setAvatar((prev) => {
-      const idx = AVATAR_OPTIONS.indexOf(prev ?? "");
-      const next = AVATAR_OPTIONS[(idx + 1) % AVATAR_OPTIONS.length];
-      return next;
-    });
-  }, []);
+  // Pick a real profile photo from the device. Stored as a compact base64
+  // data URI so every user who sees this host's listing sees the photo too.
+  const pickImage = useCallback(async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.show("Photo permission is needed to choose an image.", "warning");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.35,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const dataUri = asset.base64
+        ? `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`
+        : asset.uri;
+      if (dataUri && dataUri.length > MAX_AVATAR_CHARS) {
+        toast.show("That image is a bit large — please pick a smaller one.", "warning");
+        return;
+      }
+      haptics.selection();
+      setAvatar(dataUri);
+    } catch {
+      toast.show("Couldn't open your photos. Please try again.", "error");
+    }
+  }, [toast]);
 
   const validate = useCallback(() => {
     let ok = true;
@@ -137,7 +160,7 @@ export default function EditProfile() {
             <Avatar uri={avatar} name={name || profile?.name} size={104} />
           )}
           <Pressable
-            onPress={cycleAvatar}
+            onPress={pickImage}
             accessibilityRole="button"
             accessibilityLabel="Change avatar"
             style={({ pressed }) => [
@@ -154,7 +177,7 @@ export default function EditProfile() {
             <Ionicons name="camera" size={18} color={colors.white} />
           </Pressable>
         </View>
-        <Pressable onPress={cycleAvatar} hitSlop={8}>
+        <Pressable onPress={pickImage} hitSlop={8}>
           <Text
             style={{
               marginTop: spacing.md,

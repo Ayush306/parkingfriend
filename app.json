@@ -50,6 +50,12 @@
         {
           "locationWhenInUsePermission": "ParkingFriend uses your location to find parking spots near you and to let you pin your own space on the map."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ParkingFriend uses your photos so you can set a profile picture."
+        }
       ]
     ],
     "extra": {
