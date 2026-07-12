@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,10 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { haptics } from "@/utils/haptics";
 import { bookingService } from "@/services/bookingService";
 import { placesService, type Place } from "@/services/placesService";
+import {
+  recentSearchesService,
+  type RecentSearch,
+} from "@/services/recentSearchesService";
 import { formatDate } from "@/utils/format";
 
 import { Avatar } from "@/components/ui/Avatar";
@@ -44,7 +48,18 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
   const debouncedQuery = useDebounce(query, 350);
+
+  const loadRecentSearches = useCallback(() => {
+    recentSearchesService.list().then(setRecentSearches);
+  }, []);
+
+  // Refresh the list every time the search panel opens, so a search saved
+  // elsewhere (or removed) is always reflected.
+  useEffect(() => {
+    if (searchFocused) loadRecentSearches();
+  }, [searchFocused, loadRecentSearches]);
 
   const recentBookings = useAsync<Booking[]>(() => bookingService.list(), []);
 
@@ -75,6 +90,7 @@ export default function Home() {
   const openPlace = useCallback(
     (place: Place) => {
       haptics.selection();
+      recentSearchesService.addPlace(place);
       closeSearch();
       setQuery("");
       navigation.navigate("SearchResults", {
@@ -91,11 +107,39 @@ export default function Home() {
     (text: string) => {
       const t = text.trim();
       if (!t) return;
+      recentSearchesService.add({ name: t });
       closeSearch();
       navigation.navigate("SearchResults", { query: t });
     },
     [closeSearch, navigation]
   );
+
+  /** Re-run a saved recent search — reuse its coordinates when we have them. */
+  const openRecent = useCallback(
+    (item: RecentSearch) => {
+      haptics.selection();
+      closeSearch();
+      setQuery("");
+      navigation.navigate("SearchResults", {
+        query: item.name,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      });
+    },
+    [closeSearch, navigation]
+  );
+
+  const removeRecent = useCallback((id: string) => {
+    haptics.light();
+    setRecentSearches((prev) => prev.filter((s) => s.id !== id));
+    recentSearchesService.remove(id);
+  }, []);
+
+  const clearRecents = useCallback(() => {
+    haptics.light();
+    setRecentSearches([]);
+    recentSearchesService.clear();
+  }, []);
 
   const useMyLocation = useCallback(() => {
     closeSearch();
@@ -321,14 +365,103 @@ export default function Home() {
 
               <View style={[styles.suggestDivider, { backgroundColor: colors.border }]} />
 
-              <Text
-                style={[
-                  styles.suggestLabel,
-                  { color: colors.textMuted, fontFamily: typography.fonts.bodySemi },
-                ]}
-              >
-                {query.trim().length >= 2 ? "Places" : "Type a place, company or landmark"}
-              </Text>
+              {query.trim().length < 2 ? (
+                recentSearches.length > 0 ? (
+                  <>
+                    <View style={styles.recentHeaderRow}>
+                      <Text
+                        style={[
+                          styles.suggestLabel,
+                          { color: colors.textMuted, fontFamily: typography.fonts.bodySemi, marginBottom: 0 },
+                        ]}
+                      >
+                        Recent searches
+                      </Text>
+                      <Pressable
+                        onPress={clearRecents}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear recent searches"
+                      >
+                        <Text
+                          style={{
+                            color: colors.primary,
+                            fontFamily: typography.fonts.bodySemi,
+                            fontSize: typography.sizes.xs,
+                          }}
+                        >
+                          Clear all
+                        </Text>
+                      </Pressable>
+                    </View>
+                    {recentSearches.map((item) => (
+                      <Pressable
+                        key={item.id}
+                        onPress={() => openRecent(item)}
+                        accessibilityRole="button"
+                        accessibilityLabel={item.name}
+                        style={({ pressed }) => [styles.suggestRow, { opacity: pressed ? 0.6 : 1 }]}
+                      >
+                        <View style={[styles.suggestIcon, { backgroundColor: colors.surfaceAlt }]}>
+                          <Ionicons name="time-outline" size={15} color={colors.textSecondary} />
+                        </View>
+                        <View style={styles.flex}>
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              color: colors.text,
+                              fontFamily: typography.fonts.bodyMedium,
+                              fontSize: typography.sizes.sm,
+                            }}
+                          >
+                            {item.name}
+                          </Text>
+                          {item.label ? (
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                marginTop: 1,
+                                color: colors.textMuted,
+                                fontFamily: typography.fonts.body,
+                                fontSize: typography.sizes.xs,
+                              }}
+                            >
+                              {item.label}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Pressable
+                          onPress={() => removeRecent(item.id)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${item.name} from recent searches`}
+                          style={{ padding: 4 }}
+                        >
+                          <Ionicons name="close" size={16} color={colors.textMuted} />
+                        </Pressable>
+                      </Pressable>
+                    ))}
+                  </>
+                ) : (
+                  <Text
+                    style={[
+                      styles.suggestLabel,
+                      { color: colors.textMuted, fontFamily: typography.fonts.bodySemi },
+                    ]}
+                  >
+                    Type a place, company or landmark
+                  </Text>
+                )
+              ) : (
+                <Text
+                  style={[
+                    styles.suggestLabel,
+                    { color: colors.textMuted, fontFamily: typography.fonts.bodySemi },
+                  ]}
+                >
+                  Places
+                </Text>
+              )}
 
               {query.trim().length < 2 ? null : placeResults.loading ? (
                 <View style={styles.suggestEmpty}>
@@ -704,6 +837,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.4,
     textTransform: "uppercase",
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  recentHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingTop: 6,
     paddingBottom: 2,

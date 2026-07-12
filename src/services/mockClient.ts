@@ -145,4 +145,5 @@ export const STORAGE_KEYS = {
   user: "pm_user",
   listings: "pm_listings",
   requests: "pm_requests",
+  recentSearches: "pm_recent_searches",
 } as const;
