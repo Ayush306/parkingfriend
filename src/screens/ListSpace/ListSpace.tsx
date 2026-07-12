@@ -41,6 +41,23 @@ const DEFAULT_CENTER = { latitude: 28.4595, longitude: 77.0266 };
 const CAPACITY_MIN = 1;
 const CAPACITY_MAX = 20;
 
+/**
+ * Suggested per-day price by vehicle type — the "market standard" a host is
+ * nudged toward. For a space that fits several kinds we recommend the highest
+ * (a car spot is worth more than a bike spot).
+ */
+const RECOMMENDED_PRICE: Record<VehicleType, number> = {
+  bicycle: 20,
+  bike: 30,
+  car: 50,
+  suv: 60,
+};
+
+/** Price stepper increment (₹). */
+const PRICE_STEP = 5;
+
+type PriceTone = "neutral" | "good" | "low" | "high";
+
 interface Picked {
   latitude: number;
   longitude: number;
@@ -198,6 +215,84 @@ export default function ListSpace() {
       Math.min(CAPACITY_MAX, Math.max(CAPACITY_MIN, prev + delta))
     );
   }, []);
+
+  // Market-standard price for the chosen vehicle types (highest wins).
+  const recommendedPrice = useMemo<number | null>(() => {
+    if (vehicleTypes.length === 0) return null;
+    return Math.max(...vehicleTypes.map((v) => RECOMMENDED_PRICE[v] ?? 50));
+  }, [vehicleTypes]);
+
+  const priceNum = useMemo(() => {
+    const n = parseInt((price || "").replace(/[^0-9]/g, ""), 10);
+    return isNaN(n) ? 0 : n;
+  }, [price]);
+
+  // Green when the price sits around the market rate, yellow when it's a
+  // notch below (a deal), red when it's above (drivers may skip it).
+  const priceStatus = useMemo<{ tone: PriceTone; message: string }>(() => {
+    if (recommendedPrice == null) {
+      return {
+        tone: "neutral",
+        message: "Pick what fits above and we'll suggest a fair price.",
+      };
+    }
+    if (priceNum <= 0) {
+      return {
+        tone: "neutral",
+        message: `Suggested ₹${recommendedPrice}/day — the going rate around here.`,
+      };
+    }
+    const band = Math.max(2, Math.round(recommendedPrice * 0.1));
+    if (priceNum > recommendedPrice + band) {
+      return {
+        tone: "high",
+        message: `Above the ₹${recommendedPrice} market rate — drivers may skip it.`,
+      };
+    }
+    if (priceNum < recommendedPrice - band) {
+      return {
+        tone: "low",
+        message: `Below the ₹${recommendedPrice} market rate — a deal that fills fast.`,
+      };
+    }
+    return {
+      tone: "good",
+      message: `Right around the ₹${recommendedPrice} market rate — nicely priced.`,
+    };
+  }, [recommendedPrice, priceNum]);
+
+  const priceToneColor = useMemo(() => {
+    switch (priceStatus.tone) {
+      case "good":
+        return colors.success;
+      case "low":
+        return colors.warning;
+      case "high":
+        return colors.error;
+      default:
+        return colors.textMuted;
+    }
+  }, [priceStatus.tone, colors]);
+
+  // Step the price by ₹5; the first tap on an empty field jumps to the
+  // suggested market price so hosts start from a sensible number.
+  const changePrice = useCallback(
+    (delta: number) => {
+      haptics.selection();
+      setPrice((prev) => {
+        const n = parseInt((prev || "").replace(/[^0-9]/g, ""), 10);
+        if (isNaN(n)) return String(recommendedPrice ?? PRICE_STEP);
+        return String(Math.max(PRICE_STEP, n + delta));
+      });
+    },
+    [recommendedPrice]
+  );
+
+  const useSuggestedPrice = useCallback(() => {
+    if (recommendedPrice == null) return;
+    haptics.success();
+    setPrice(String(recommendedPrice));
+  }, [recommendedPrice]);
 
   const handlePublish = async () => {
     if (!picked) {
@@ -871,25 +966,129 @@ export default function ListSpace() {
             required
           </Text>
         </View>
-        <Input
-          label="Price per day"
-          value={price}
-          onChangeText={(t) => setPrice(t.replace(/[^0-9]/g, ""))}
-          placeholder="e.g. 100"
-          keyboardType="number-pad"
-          maxLength={5}
-          iconLeft={
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontFamily: typography.fonts.bodySemi,
-                fontSize: typography.sizes.md,
-              }}
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontFamily: typography.fonts.bodyMedium,
+            fontSize: typography.sizes.sm,
+            marginBottom: spacing.sm,
+          }}
+        >
+          Price per day
+        </Text>
+
+        {/* Stepper: [−] [ ₹ input ] [+] */}
+        <View style={styles.priceRow}>
+          <Pressable
+            onPress={() => changePrice(-PRICE_STEP)}
+            disabled={priceNum > 0 && priceNum <= PRICE_STEP}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease price"
+            style={({ pressed }) => [
+              styles.stepBtn,
+              {
+                backgroundColor: pressed ? colors.primaryLight : colors.surfaceAlt,
+                borderColor: colors.border,
+                borderRadius: radius.pill,
+                opacity: priceNum > 0 && priceNum <= PRICE_STEP ? 0.4 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="remove" size={22} color={colors.primary} />
+          </Pressable>
+
+          <View style={{ flex: 1, marginHorizontal: spacing.sm }}>
+            <Input
+              value={price}
+              onChangeText={(t) => setPrice(t.replace(/[^0-9]/g, ""))}
+              placeholder="e.g. 100"
+              keyboardType="number-pad"
+              maxLength={5}
+              iconLeft={
+                <Text
+                  style={{
+                    color: priceNum > 0 ? priceToneColor : colors.textSecondary,
+                    fontFamily: typography.fonts.bodySemi,
+                    fontSize: typography.sizes.md,
+                  }}
+                >
+                  ₹
+                </Text>
+              }
+            />
+          </View>
+
+          <Pressable
+            onPress={() => changePrice(PRICE_STEP)}
+            accessibilityRole="button"
+            accessibilityLabel="Increase price"
+            style={({ pressed }) => [
+              styles.stepBtn,
+              {
+                backgroundColor: pressed ? colors.primaryLight : colors.surfaceAlt,
+                borderColor: colors.border,
+                borderRadius: radius.pill,
+              },
+            ]}
+          >
+            <Ionicons name="add" size={22} color={colors.primary} />
+          </Pressable>
+        </View>
+
+        {/* Colored market-rate feedback */}
+        <View style={[styles.priceHint, { marginTop: spacing.md }]}>
+          <Ionicons
+            name={
+              priceStatus.tone === "good"
+                ? "checkmark-circle"
+                : priceStatus.tone === "high"
+                ? "trending-up"
+                : priceStatus.tone === "low"
+                ? "trending-down"
+                : "pricetag-outline"
+            }
+            size={16}
+            color={priceToneColor}
+          />
+          <Text
+            style={{
+              flex: 1,
+              marginLeft: spacing.sm,
+              color: priceToneColor,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+              lineHeight: 17,
+            }}
+          >
+            {priceStatus.message}
+          </Text>
+          {recommendedPrice != null && priceNum !== recommendedPrice ? (
+            <Pressable
+              onPress={useSuggestedPrice}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Use suggested price ₹${recommendedPrice}`}
+              style={({ pressed }) => [
+                styles.useSuggested,
+                {
+                  backgroundColor: colors.primaryLight,
+                  borderRadius: radius.pill,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
             >
-              ₹
-            </Text>
-          }
-        />
+              <Text
+                style={{
+                  color: colors.primary,
+                  fontFamily: typography.fonts.bodySemi,
+                  fontSize: typography.sizes.xs,
+                }}
+              >
+                Use ₹{recommendedPrice}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
       </Card>
 
       <Button
@@ -977,6 +1176,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1.5,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  priceHint: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  useSuggested: {
+    marginLeft: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   summaryRow: {
     flexDirection: "row",
