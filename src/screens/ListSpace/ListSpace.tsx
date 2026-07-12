@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { MapPicker } from "@/components/ui/MapPicker";
 import type { PickerLandmark } from "@/components/ui/LiveMap.shared";
 import { SuccessCheck } from "@/components/illustrations/SuccessCheck";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { useTheme } from "@/theme/ThemeContext";
 import { useToast } from "@/components/ui/Toast";
 import { useAsync } from "@/hooks/useAsync";
@@ -308,13 +309,21 @@ export default function ListSpace() {
 
         <Card elevated style={{ marginTop: spacing.xxl }}>
           <View style={styles.summaryRow}>
-            <Image
-              source={{ uri: created.images[0] }}
-              style={[
-                styles.summaryImg,
-                { backgroundColor: colors.surfaceAlt, borderRadius: radius.md },
-              ]}
-            />
+            {created.images[0] ? (
+              <Image
+                source={{ uri: created.images[0] }}
+                style={[
+                  styles.summaryImg,
+                  { backgroundColor: colors.surfaceAlt, borderRadius: radius.md },
+                ]}
+              />
+            ) : (
+              <SpotGraphic
+                vehicleTypes={created.vehicleTypes}
+                iconSize={24}
+                style={[styles.summaryImg, { borderRadius: radius.md }]}
+              />
+            )}
             <View style={{ flex: 1, marginLeft: spacing.md }}>
               <Text
                 numberOfLines={2}

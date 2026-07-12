@@ -45,7 +45,8 @@ export interface CreateListingPayload {
 /** Reads the host's listings from storage, seeded from JSON. */
 async function readListings(): Promise<ParkingSpot[]> {
   const listings = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, seedListings);
-  // Listings created before the capacity feature default to 1 empty slot.
+  // Listings created before the capacity feature default to 1 empty slot;
+  // legacy random-placeholder photos are stripped (vehicle graphic instead).
   return listings.map((s) => ({
     ...s,
     capacity: Math.max(1, Number(s.capacity) || 1),
@@ -53,6 +54,7 @@ async function readListings(): Promise<ParkingSpot[]> {
       0,
       Number(s.remainingCount ?? s.capacity ?? 1) || 0
     ),
+    images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
   }));
 }
 
@@ -107,10 +109,7 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     isFree: !!payload.isFree,
     rating: 0,
     reviewsCount: 0,
-    images:
-      payload.images && payload.images.length
-        ? payload.images
-        : [`https://picsum.photos/seed/pm-${id}/800/520`],
+    images: payload.images && payload.images.length ? payload.images : [],
     amenities: payload.amenities ?? [],
     availableFrom: payload.availableFrom,
     availableTo: payload.availableTo,

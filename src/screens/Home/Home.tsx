@@ -25,6 +25,7 @@ import { placesService, type Place } from "@/services/placesService";
 import { formatDate } from "@/utils/format";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import type { Booking } from "@/models/types";
@@ -484,10 +485,18 @@ export default function Home() {
                       },
                     ]}
                   >
-                    <Image
-                      source={{ uri: b.spot.images[0] }}
-                      style={[styles.bookingThumb, { backgroundColor: colors.surfaceAlt, borderRadius: radius.md }]}
-                    />
+                    {b.spot.images[0] ? (
+                      <Image
+                        source={{ uri: b.spot.images[0] }}
+                        style={[styles.bookingThumb, { backgroundColor: colors.surfaceAlt, borderRadius: radius.md }]}
+                      />
+                    ) : (
+                      <SpotGraphic
+                        vehicleTypes={b.spot.vehicleTypes}
+                        iconSize={18}
+                        style={[styles.bookingThumb, { borderRadius: radius.md }]}
+                      />
+                    )}
                     <View style={{ flex: 1, marginLeft: spacing.md }}>
                       <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
                         {b.spot.title}

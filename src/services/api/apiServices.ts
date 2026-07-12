@@ -77,9 +77,12 @@ function normalizeSpot(raw: any): ParkingSpot {
     isFree: !!raw?.isFree || Number(raw?.pricePerDay ?? 0) === 0,
     rating: Number(raw?.rating ?? 0),
     reviewsCount: Number(raw?.reviewsCount ?? 0),
-    images: asArray(raw?.images).length
-      ? asArray(raw?.images).map(String)
-      : [`https://picsum.photos/seed/pm-${raw?.id ?? "spot"}/800/520`],
+    // No stock-photo fallback: an empty list means screens render the
+    // vehicle-type SpotGraphic tile instead of a random image. Legacy rows
+    // may still carry generated placeholder URLs — strip those too.
+    images: asArray(raw?.images)
+      .map(String)
+      .filter((u) => !u.includes("picsum.photos")),
     amenities: asArray(raw?.amenities).map(String),
     availableFrom: raw?.availableFrom ?? "08:00",
     availableTo: raw?.availableTo ?? "20:00",

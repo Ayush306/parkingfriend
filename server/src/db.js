@@ -393,7 +393,11 @@ async function toSpot(row) {
     isFree: !!row.isFree,
     rating: Number(row.rating) || 0,
     reviewsCount: Number(row.reviewsCount) || 0,
-    images: Array.isArray(row.images) ? row.images : [],
+    // Strip legacy random-placeholder URLs so old rows render the app's
+    // vehicle-type graphic instead of a meaningless stock photo.
+    images: (Array.isArray(row.images) ? row.images : []).filter(
+      (u) => !String(u).includes("picsum.photos")
+    ),
     amenities: Array.isArray(row.amenities) ? row.amenities : [],
     availableFrom: row.availableFrom || "00:00",
     availableTo: row.availableTo || "23:59",

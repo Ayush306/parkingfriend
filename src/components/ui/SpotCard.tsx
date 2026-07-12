@@ -21,6 +21,7 @@ import type { ParkingSpot } from "@/models/types";
 import { PriceTag } from "@/components/ui/PriceTag";
 import { RatingStars } from "@/components/ui/RatingStars";
 import { Badge } from "@/components/ui/Badge";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 
 export type SpotCardVariant = "featured" | "list";
 
@@ -120,9 +121,11 @@ export function SpotCard({
             resizeMode="cover"
           />
         ) : (
-          <View style={styles.imageFallback}>
-            <Ionicons name="car-outline" size={30} color={colors.textMuted} />
-          </View>
+          <SpotGraphic
+            vehicleTypes={spot.vehicleTypes}
+            iconSize={34}
+            style={styles.image}
+          />
         )}
 
         {/* distance chip */}
@@ -269,11 +272,6 @@ const styles = StyleSheet.create({
   image: {
     width: "100%",
     height: "100%",
-  },
-  imageFallback: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
   },
   distancePill: {
     position: "absolute",

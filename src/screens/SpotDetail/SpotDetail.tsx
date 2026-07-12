@@ -38,6 +38,7 @@ import { PriceTag } from "@/components/ui/PriceTag";
 import { MapPreview, type MapPin } from "@/components/ui/MapPreview";
 import { LiveMap } from "@/components/ui/LiveMap";
 import { SectionHeader } from "@/components/ui/SectionHeader";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
 
@@ -211,9 +212,11 @@ export default function SpotDetail() {
                   resizeMode="cover"
                 />
               ) : (
-                <View style={[styles.heroFallback, { width: SCREEN_W, height: HERO_H }]}>
-                  <Ionicons name="car-outline" size={54} color={colors.textMuted} />
-                </View>
+                <SpotGraphic
+                  vehicleTypes={spot.vehicleTypes}
+                  iconSize={48}
+                  style={{ width: SCREEN_W, height: HERO_H }}
+                />
               )
             }
           />
@@ -447,7 +450,7 @@ export default function SpotDetail() {
                       fontSize: typography.sizes.xs,
                     }}
                   >
-                    Spots free
+                    Spots available
                   </Text>
                   <Text
                     style={{
@@ -458,7 +461,7 @@ export default function SpotDetail() {
                     }}
                   >
                     {remaining > 0
-                      ? `${remaining} of ${capacity} ${capacity === 1 ? "spot" : "spots"} free`
+                      ? `${remaining} of ${capacity} ${capacity === 1 ? "spot" : "spots"} available`
                       : "Currently full"}
                   </Text>
                 </View>
@@ -708,10 +711,6 @@ export default function SpotDetail() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
-  heroFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
   dotsRow: {
     position: "absolute",
     bottom: 16,

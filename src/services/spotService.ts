@@ -29,6 +29,8 @@ async function readAllSpots(): Promise<ParkingSpot[]> {
       0,
       Number(s.remainingCount ?? s.capacity ?? 1) || 0
     ),
+    // Legacy random-placeholder photos render as vehicle graphics instead.
+    images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
   }));
 }
 

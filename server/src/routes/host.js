@@ -92,10 +92,9 @@ router.post("/listings", ah(async (req, res) => {
     isFree,
     rating: 0,
     reviewsCount: 0,
-    images:
-      Array.isArray(p.images) && p.images.length
-        ? p.images.map(String)
-        : [`https://picsum.photos/seed/pm-${id}/800/520`],
+    // Empty when the host added no photos — the app renders a vehicle-type
+    // graphic tile instead of a random stock image.
+    images: Array.isArray(p.images) ? p.images.map(String) : [],
     amenities: Array.isArray(p.amenities) ? p.amenities.map(String) : [],
     availableFrom: p.availableFrom.trim(),
     availableTo: p.availableTo.trim(),

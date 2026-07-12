@@ -23,6 +23,7 @@ import { walletService } from "@/services/walletService";
 import { formatCurrency, formatDate } from "@/utils/format";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { useToast } from "@/components/ui/Toast";
 import type { HostRequest, ParkingSpot, WalletSummary } from "@/models/types";
 
@@ -316,7 +317,11 @@ export default function Post() {
                 accessibilityLabel={sp.title}
                 style={({ pressed }) => [styles.spaceCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, opacity: pressed ? 0.9 : 1, ...shadows.sm }]}
               >
-                <Image source={{ uri: sp.images[0] }} style={[styles.spaceThumb, { backgroundColor: colors.surfaceAlt }]} />
+                {sp.images[0] ? (
+                  <Image source={{ uri: sp.images[0] }} style={[styles.spaceThumb, { backgroundColor: colors.surfaceAlt }]} />
+                ) : (
+                  <SpotGraphic vehicleTypes={sp.vehicleTypes} iconSize={30} style={styles.spaceThumb} />
+                )}
                 <View style={{ padding: spacing.sm }}>
                   <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
                     {sp.title}
@@ -341,7 +346,7 @@ export default function Post() {
                         style={{ marginRight: 3 }}
                       />
                       <Text style={{ color: (sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primary : colors.textMuted, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
-                        {sp.remainingCount ?? sp.capacity ?? 1}/{sp.capacity ?? 1} free
+                        {sp.remainingCount ?? sp.capacity ?? 1}/{sp.capacity ?? 1} available
                       </Text>
                     </View>
                   </View>

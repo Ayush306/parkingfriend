@@ -23,6 +23,7 @@ import { LiveMap } from "@/components/ui/LiveMap";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
+import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { useToast } from "@/components/ui/Toast";
 
 import { useTheme } from "@/theme/ThemeContext";
@@ -209,10 +210,18 @@ export default function BookingDetail() {
           onPress={() => navigation.navigate("SpotDetail", { id: booking.spotId })}
           style={{ overflow: "hidden" }}
         >
-          <Image
-            source={{ uri: booking.spot.images[0] }}
-            style={{ width: "100%", height: 150, backgroundColor: colors.surfaceAlt }}
-          />
+          {booking.spot.images[0] ? (
+            <Image
+              source={{ uri: booking.spot.images[0] }}
+              style={{ width: "100%", height: 150, backgroundColor: colors.surfaceAlt }}
+            />
+          ) : (
+            <SpotGraphic
+              vehicleTypes={booking.spot.vehicleTypes}
+              iconSize={40}
+              style={{ width: "100%", height: 150 }}
+            />
+          )}
           <View style={{ padding: spacing.md }}>
             <Text style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.md }} numberOfLines={2}>
               {booking.spot.title}
