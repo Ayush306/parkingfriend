@@ -1,14 +1,23 @@
 /**
- * Real place lookup (geocoding) via Photon — a FREE OpenStreetMap-based
- * geocoder from Komoot. No API key required.
- *   https://photon.komoot.io/
+ * Real place lookup (geocoding), Ola Maps first with Photon as a fallback.
+ *
+ * Ola Maps (https://maps.olakrutrim.com) is built on India's own map data —
+ * it finds chowks, colonies, societies and company/shop names that Photon's
+ * global OpenStreetMap data mostly doesn't have. When OLA_MAPS_API_KEY (see
+ * "@/config/olaMapsConfig") is set, `search()` and `reverse()` try Ola Maps
+ * first and silently fall back to Photon on any error/empty result — so the
+ * app degrades to its old behavior instead of breaking if Ola is ever down.
  *
  * - `search(query)`     forward geocoding: text -> real places (with coords).
  * - `reverse(lat,lon)`  reverse geocoding: a coordinate -> the nearest place.
- * - `nearby(lat,lon)`   several real places/landmarks around a coordinate.
+ * - `nearby(lat,lon)`   several real places/landmarks around a coordinate
+ *                       (stays on Photon: Ola's nearby-search doesn't return
+ *                       coordinates per result, which this needs to move the
+ *                       map pin when a landmark is tapped).
  *
  * None of these return parking spots — those are ParkingFriend's own listings.
  */
+import { OLA_MAPS_API_KEY, isOlaMapsEnabled } from "@/config/olaMapsConfig";
 
 export interface Place {
   id: string;
@@ -64,10 +73,105 @@ async function fetchFeatures(url: string): Promise<any[]> {
   }
 }
 
+/** Fetches Ola Maps JSON with a hard 8s timeout; throws on any failure. */
+async function fetchOla(url: string): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error("Ola Maps request failed (" + res.status + ")");
+    const json: any = await res.json();
+    if (json?.status && json.status !== "ok") {
+      throw new Error("Ola Maps status: " + json.status);
+    }
+    return json;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Maps one Ola Maps autocomplete prediction to a Place, or null without coords. */
+function predictionToPlace(p: any, fallbackIdx: number): Place | null {
+  const loc = p?.geometry?.location;
+  const lat = Number(loc?.lat);
+  const lon = Number(loc?.lng);
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  const sf = p?.structured_formatting ?? {};
+  return {
+    id: String(p?.place_id ?? `ola-${fallbackIdx}`),
+    name: sf.main_text || p?.description || "Unknown place",
+    label: sf.secondary_text || "",
+    latitude: lat,
+    longitude: lon,
+    kind: Array.isArray(p?.types) ? String(p.types[0] ?? "place") : "place",
+  };
+}
+
+/** Maps one Ola Maps reverse-geocode result to a Place, or null without coords. */
+function reverseResultToPlace(r: any, fallbackIdx: number): Place | null {
+  const loc = r?.geometry?.location;
+  const lat = Number(loc?.lat);
+  const lon = Number(loc?.lng);
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  const name: string = r?.name || "Unknown place";
+  const label = String(r?.formatted_address || "")
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter((s: string, idx: number, arr: string[]) => s && s !== name && arr.indexOf(s) === idx)
+    .join(", ");
+  return {
+    id: String(r?.place_id ?? `ola-rev-${fallbackIdx}`),
+    name,
+    label,
+    latitude: lat,
+    longitude: lon,
+    kind: Array.isArray(r?.types) ? String(r.types[0] ?? "place") : "place",
+  };
+}
+
+/** Forward geocoding via Ola Maps autocomplete — real Indian chowks/colonies/companies. */
+async function olaSearch(query: string): Promise<Place[]> {
+  const url =
+    "https://api.olamaps.io/places/v1/autocomplete?input=" +
+    encodeURIComponent(query) +
+    "&api_key=" +
+    OLA_MAPS_API_KEY;
+  const json = await fetchOla(url);
+  const predictions: any[] = Array.isArray(json?.predictions) ? json.predictions : [];
+  const places: Place[] = [];
+  for (let i = 0; i < predictions.length; i += 1) {
+    const place = predictionToPlace(predictions[i], i);
+    if (place) places.push(place);
+  }
+  return places;
+}
+
+/** Reverse geocoding via Ola Maps — the most specific real place at a coordinate. */
+async function olaReverse(lat: number, lon: number): Promise<Place | null> {
+  const url =
+    "https://api.olamaps.io/places/v1/reverse-geocode?latlng=" +
+    encodeURIComponent(`${lat},${lon}`) +
+    "&api_key=" +
+    OLA_MAPS_API_KEY;
+  const json = await fetchOla(url);
+  const results: any[] = Array.isArray(json?.results) ? json.results : [];
+  return reverseResultToPlace(results[0], 0);
+}
+
 /** Forward geocoding — free text to real places. */
 async function search(query: string): Promise<Place[]> {
   const q = query.trim();
   if (q.length < 2) return [];
+
+  if (isOlaMapsEnabled()) {
+    try {
+      const places = await olaSearch(q);
+      if (places.length > 0) return places;
+    } catch {
+      // Fall through to Photon below.
+    }
+  }
+
   // Bias toward Delhi NCR so nearby places rank first, but allow anywhere.
   const url =
     "https://photon.komoot.io/api/?q=" +
@@ -84,6 +188,14 @@ async function search(query: string): Promise<Place[]> {
 
 /** Reverse geocoding — the single nearest real place to a coordinate. */
 async function reverse(lat: number, lon: number): Promise<Place | null> {
+  if (isOlaMapsEnabled()) {
+    try {
+      const place = await olaReverse(lat, lon);
+      if (place) return place;
+    } catch {
+      // Fall through to Photon below.
+    }
+  }
   const list = await reverseNearby(lat, lon, 1);
   return list[0] ?? null;
 }

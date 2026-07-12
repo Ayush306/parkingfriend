@@ -11,7 +11,7 @@
  * Leave OLA_MAPS_API_KEY empty ("") to keep using the free Photon geocoder
  * (city/state-level results only, no key needed) — the app works either way.
  */
-export const OLA_MAPS_API_KEY: string = "";
+export const OLA_MAPS_API_KEY: string = "4Iiwv9s58tnrOh84a4tul69gu6CHObe2IrsRvE36";
 
 export function isOlaMapsEnabled(): boolean {
   return OLA_MAPS_API_KEY.trim().length > 0;
