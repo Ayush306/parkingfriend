@@ -2,9 +2,14 @@
 
 /**
  * Auth routes (mounted at /api):
- *   POST /api/auth/request-otp  {phone}       -> {ok, devOtp}
- *   POST /api/auth/verify-otp   {phone, otp}  -> {token, user}
- *   GET  /api/me                (auth)        -> User
+ *   POST /api/auth/request-otp  {phone}                       -> {ok, devOtp}
+ *   POST /api/auth/verify-otp   {phone, otp, name?, email?}   -> {token, user}
+ *        - name present  => REGISTER: create the account (or log in if the
+ *          number is already registered).
+ *        - name absent   => LOGIN: only succeeds for an existing account;
+ *          an unknown number returns 404 so the app can send them to Register.
+ *   GET   /api/me               (auth)                        -> User
+ *   PATCH /api/me               (auth) {name?, email?, avatar?} -> User
  *
  * Dev OTP is always "123456". Real SMS delivery is a TODO hook — see README.
  */
@@ -38,17 +43,29 @@ router.post("/auth/request-otp", (req, res) => {
 });
 
 router.post("/auth/verify-otp", ah(async (req, res) => {
-  const phone = readPhone(req.body);
+  const body = req.body || {};
+  const phone = readPhone(body);
   if (!phone) {
     return res.status(400).json({ error: "A valid phone number is required" });
   }
-  const otp = typeof (req.body || {}).otp === "string" ? req.body.otp.trim() : "";
+  const otp = typeof body.otp === "string" ? body.otp.trim() : "";
   if (otp !== DEV_OTP) {
     return res.status(401).json({ error: "Invalid OTP" });
   }
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim() : "";
+  const isRegister = name.length > 0;
+
   let user = await db.findUserByPhone(phone);
   if (!user) {
-    user = await db.createUser({ phone });
+    // LOGIN into a number that was never registered → tell the app to register.
+    if (!isRegister) {
+      return res
+        .status(404)
+        .json({ error: "No account found for this number. Please register first." });
+    }
+    user = await db.createUser({ phone, name, email });
   }
   res.json({ token: signToken(user), user: db.toUser(user) });
 }));
@@ -56,5 +73,20 @@ router.post("/auth/verify-otp", ah(async (req, res) => {
 router.get("/me", requireAuth, (req, res) => {
   res.json(db.toUser(req.user));
 });
+
+router.patch("/me", requireAuth, ah(async (req, res) => {
+  const body = req.body || {};
+  const patch = {};
+  if (typeof body.name === "string") {
+    if (body.name.trim().length < 2) {
+      return res.status(400).json({ error: "Name must be at least 2 characters" });
+    }
+    patch.name = body.name;
+  }
+  if (body.email !== undefined) patch.email = body.email;
+  if (body.avatar !== undefined) patch.avatar = body.avatar;
+  const updated = await db.updateUserProfile(req.user.id, patch);
+  res.json(db.toUser(updated));
+}));
 
 module.exports = router;

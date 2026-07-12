@@ -27,7 +27,11 @@ const RESEND_SECONDS = 30;
 export default function OtpVerification() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const phone: string = (route.params as any)?.phone ?? "your number";
+  const params = (route.params as any) ?? {};
+  const phone: string = params.phone ?? "your number";
+  const name: string | undefined = params.name;
+  const email: string | undefined = params.email;
+  const isRegister: boolean = params.mode === "register";
 
   const { colors, spacing, radius, typography } = useTheme();
   const { verifyOtp, sendOtp } = useAuth();
@@ -71,9 +75,13 @@ export default function OtpVerification() {
       setError(null);
       try {
         setLoading(true);
-        await verifyOtp(phone, value);
+        await verifyOtp(
+          phone,
+          value,
+          isRegister ? { name, email } : undefined
+        );
         haptics.success();
-        toast.show("Verified successfully", "success");
+        toast.show(isRegister ? "Welcome to ParkingFriend!" : "Verified successfully", "success");
         navigation.reset({ index: 0, routes: [{ name: "Main" }] });
       } catch (e: any) {
         haptics.error();
@@ -81,12 +89,17 @@ export default function OtpVerification() {
         const msg = e?.message ?? "Invalid code. Please try again.";
         setError(msg);
         toast.show(msg, "error");
+        // Logging in with a number that was never registered → send them
+        // to the Register screen (their entered number carries over).
+        if (!isRegister && /no account/i.test(msg)) {
+          setTimeout(() => navigation.replace("Register"), 900);
+        }
       } finally {
         setLoading(false);
         submitting.current = false;
       }
     },
-    [phone, verifyOtp, toast, navigation]
+    [phone, verifyOtp, toast, navigation, isRegister, name, email]
   );
 
   const handleChange = useCallback((value: string) => {

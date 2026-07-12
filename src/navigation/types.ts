@@ -4,7 +4,15 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Welcome: undefined;
   Login: undefined;
-  OtpVerification: { phone?: string } | undefined;
+  Register: undefined;
+  OtpVerification:
+    | {
+        phone?: string;
+        name?: string;
+        email?: string;
+        mode?: "login" | "register";
+      }
+    | undefined;
 
   // Main tabs wrapper
   Main: undefined;

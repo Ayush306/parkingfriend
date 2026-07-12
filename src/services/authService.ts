@@ -38,12 +38,18 @@ async function sendOtp(phone: string): Promise<SendOtpResult> {
 }
 
 /**
- * Verifies an OTP. Accepts "123456", "1234", or any 6-digit numeric code as
- * valid. On success returns the seeded current user and saves the session.
+ * Verifies an OTP. On success saves the session and returns the user.
+ * `extra.name` present = REGISTER (creates the account); absent = LOGIN
+ * (which the server rejects for an unknown number). In offline/demo mode
+ * any 6-digit code works and the name/email are folded into the local user.
  */
-async function verifyOtp(phone: string, code: string): Promise<VerifyOtpResult> {
+async function verifyOtp(
+  phone: string,
+  code: string,
+  extra?: { name?: string; email?: string }
+): Promise<VerifyOtpResult> {
   if (isApiEnabled()) {
-    const result = await apiAuth.verifyOtp(phone, code);
+    const result = await apiAuth.verifyOtp(phone, code, extra);
     await saveSession(result.user);
     return result;
   }
@@ -58,7 +64,12 @@ async function verifyOtp(phone: string, code: string): Promise<VerifyOtpResult> 
     throw new Error("Invalid code. Please check and try again.");
   }
 
-  const user: User = { ...clone(seedUser), phone: phone.trim() || seedUser.phone };
+  const user: User = {
+    ...clone(seedUser),
+    phone: phone.trim() || seedUser.phone,
+    ...(extra?.name ? { name: extra.name } : {}),
+    ...(extra?.email ? { email: extra.email } : {}),
+  };
   await saveSession(user);
   return {
     success: true,

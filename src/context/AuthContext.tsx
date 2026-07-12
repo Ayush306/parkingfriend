@@ -20,8 +20,15 @@ export interface AuthContextValue {
   initializing: boolean;
   /** Sends an OTP to the given phone number. */
   sendOtp: (phone: string) => Promise<void>;
-  /** Verifies an OTP and returns the resulting user (also logs them in). */
-  verifyOtp: (phone: string, code: string) => Promise<User>;
+  /**
+   * Verifies an OTP and logs the user in. Pass `extra.name` to REGISTER a new
+   * account; omit it to LOG IN an existing one.
+   */
+  verifyOtp: (
+    phone: string,
+    code: string,
+    extra?: { name?: string; email?: string }
+  ) => Promise<User>;
   /** Directly sets the signed-in user and persists the session. */
   login: (user: User) => Promise<void>;
   /** Clears the session and signs the user out. */
@@ -69,11 +76,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await authService.sendOtp(phone);
   }, []);
 
-  const verifyOtp = useCallback(async (phone: string, code: string) => {
-    const result = await authService.verifyOtp(phone, code);
-    setUser(result.user);
-    return result.user;
-  }, []);
+  const verifyOtp = useCallback(
+    async (
+      phone: string,
+      code: string,
+      extra?: { name?: string; email?: string }
+    ) => {
+      const result = await authService.verifyOtp(phone, code, extra);
+      setUser(result.user);
+      return result.user;
+    },
+    []
+  );
 
   const login = useCallback(async (nextUser: User) => {
     await authService.saveSession(nextUser);

@@ -179,11 +179,16 @@ export const apiAuth = {
 
   async verifyOtp(
     phone: string,
-    code: string
+    code: string,
+    extra?: { name?: string; email?: string }
   ): Promise<{ success: boolean; user: User; message: string }> {
+    const body: Record<string, unknown> = { phone, otp: code };
+    // Sending a name signals REGISTER; omitting it signals LOGIN.
+    if (extra?.name) body.name = extra.name;
+    if (extra?.email) body.email = extra.email;
     const res = await http.request<{ token: string; user: any }>(
       "/api/auth/verify-otp",
-      { method: "POST", body: { phone, otp: code }, auth: false }
+      { method: "POST", body, auth: false }
     );
     await setToken(res.token);
     return {
@@ -195,6 +200,30 @@ export const apiAuth = {
 
   async logout(): Promise<void> {
     await setToken(null);
+  },
+};
+
+/* ─────────────────────────── profile ─────────────────────────── */
+
+export const apiUser = {
+  async getProfile(): Promise<User> {
+    const raw = await http.request<any>("/api/me");
+    return normalizeUser(raw);
+  },
+
+  async updateProfile(patch: {
+    name?: string;
+    email?: string | undefined;
+    avatar?: string | undefined;
+  }): Promise<User> {
+    const body: Record<string, unknown> = {};
+    if (patch.name !== undefined) body.name = patch.name;
+    // Send explicit "" to clear email/avatar server-side (the route treats
+    // an empty string as "remove"); undefined means "leave unchanged".
+    if (patch.email !== undefined) body.email = patch.email ?? "";
+    if (patch.avatar !== undefined) body.avatar = patch.avatar ?? "";
+    const raw = await http.request<any>("/api/me", { method: "PATCH", body });
+    return normalizeUser(raw);
   },
 };
 

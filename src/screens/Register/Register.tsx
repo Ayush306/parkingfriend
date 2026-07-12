@@ -20,39 +20,38 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { haptics } from "@/utils/haptics";
 
-export default function Login() {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export default function Register() {
   const navigation = useNavigation<any>();
   const { colors, spacing, radius, typography } = useTheme();
   const { sendOtp } = useAuth();
   const toast = useToast();
 
-  // Full international number, digits with an optional leading "+" — this
-  // app has hosts and drivers everywhere, so no country/dial-code is assumed.
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Same 8–15 digit rule the server itself validates against (see
-  // server/src/routes/auth.js normalizePhone) — works for any country's
-  // numbers, not just one.
+  const nameOk = name.trim().length >= 2;
   const digitCount = useMemo(() => phone.replace(/\D/g, "").length, [phone]);
-  const isValid = digitCount >= 8 && digitCount <= 15;
-  const showError = touched && phone.length > 0 && !isValid;
+  const phoneOk = digitCount >= 8 && digitCount <= 15;
+  const emailOk = email.trim().length === 0 || EMAIL_RE.test(email.trim());
+  const canSubmit = nameOk && phoneOk && emailOk;
 
-  const handleChange = useCallback((text: string) => {
-    // Keep digits, and a single leading "+" if the user typed a country code.
+  const onPhoneChange = useCallback((text: string) => {
     const cleaned = text.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
     setPhone(cleaned.slice(0, 16));
   }, []);
 
-  const handleSendOtp = useCallback(async () => {
+  const handleContinue = useCallback(async () => {
     setTouched(true);
-    if (!isValid) {
+    if (!canSubmit) {
       haptics.warning();
-      toast.show(
-        "Enter your phone number with country code (e.g. +1 415 555 0123).",
-        "warning"
-      );
+      if (!nameOk) toast.show("Please enter your name.", "warning");
+      else if (!emailOk) toast.show("Enter a valid email, or leave it blank.", "warning");
+      else toast.show("Enter your number with country code.", "warning");
       return;
     }
     const fullPhone = phone.startsWith("+") ? phone : `+${phone}`;
@@ -60,13 +59,18 @@ export default function Login() {
       setLoading(true);
       await sendOtp(fullPhone);
       toast.show("OTP sent successfully", "success");
-      navigation.navigate("OtpVerification", { phone: fullPhone, mode: "login" });
+      navigation.navigate("OtpVerification", {
+        phone: fullPhone,
+        name: name.trim(),
+        email: email.trim() || undefined,
+        mode: "register",
+      });
     } catch {
       toast.show("Something went wrong. Please try again.", "error");
     } finally {
       setLoading(false);
     }
-  }, [isValid, phone, sendOtp, toast, navigation]);
+  }, [canSubmit, nameOk, emailOk, phone, name, email, sendOtp, toast, navigation]);
 
   return (
     <SafeAreaView
@@ -80,10 +84,7 @@ export default function Login() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingHorizontal: spacing.xl },
-          ]}
+          contentContainerStyle={[styles.content, { paddingHorizontal: spacing.xl }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -95,17 +96,10 @@ export default function Login() {
             <View
               style={[
                 styles.iconBadge,
-                {
-                  backgroundColor: colors.primaryLight,
-                  borderRadius: radius.lg,
-                },
+                { backgroundColor: colors.primaryLight, borderRadius: radius.lg },
               ]}
             >
-              <Ionicons
-                name="phone-portrait-outline"
-                size={28}
-                color={colors.primary}
-              />
+              <Ionicons name="person-add-outline" size={28} color={colors.primary} />
             </View>
 
             <Text
@@ -116,7 +110,7 @@ export default function Login() {
                 color: colors.text,
               }}
             >
-              Enter your mobile number
+              Create your account
             </Text>
             <Text
               style={{
@@ -127,7 +121,7 @@ export default function Login() {
                 lineHeight: typography.sizes.md * 1.5,
               }}
             >
-              We'll send a 6-digit code to verify it's really you.
+              A few details and a quick code — that's all it takes.
             </Text>
           </MotiView>
 
@@ -135,28 +129,43 @@ export default function Login() {
             from={{ opacity: 0, translateY: 16 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: "timing", duration: 500, delay: 120 }}
-            style={{ marginTop: spacing.xxxl }}
+            style={{ marginTop: spacing.xxl }}
           >
-            <Text
-              style={{
-                marginBottom: spacing.xs + 2,
-                fontFamily: typography.fonts.bodyMedium,
-                fontSize: typography.sizes.sm,
-                color: colors.textSecondary,
-              }}
-            >
-              Mobile number
-            </Text>
-
             <Input
+              label="Full name"
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              autoFocus
+              error={touched && !nameOk ? "Please enter your name" : undefined}
+              iconLeft={
+                <Ionicons name="person-outline" size={20} color={colors.textMuted} />
+              }
+            />
+
+            <View style={{ height: spacing.lg }} />
+            <Input
+              label="Email (optional)"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              keyboardType="email-address"
+              error={touched && !emailOk ? "Enter a valid email address" : undefined}
+              iconLeft={
+                <Ionicons name="mail-outline" size={20} color={colors.textMuted} />
+              }
+            />
+
+            <View style={{ height: spacing.lg }} />
+            <Input
+              label="Mobile number"
               value={phone}
-              onChangeText={handleChange}
+              onChangeText={onPhoneChange}
               placeholder="+1 415 555 0123"
               keyboardType="phone-pad"
               maxLength={16}
-              autoFocus
               error={
-                showError
+                touched && !phoneOk
                   ? "Enter your number with country code (8–15 digits)"
                   : undefined
               }
@@ -171,23 +180,10 @@ export default function Login() {
                   +
                 </Text>
               }
-              right={
-                isValid ? (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={20}
-                    color={colors.success}
-                  />
-                ) : undefined
-              }
             />
 
             <View style={[styles.hintRow, { marginTop: spacing.md }]}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={14}
-                color={colors.textMuted}
-              />
+              <Ionicons name="lock-closed-outline" size={14} color={colors.textMuted} />
               <Text
                 style={{
                   marginLeft: spacing.xs + 2,
@@ -214,13 +210,13 @@ export default function Login() {
           ]}
         >
           <Button
-            label="Send OTP"
+            label="Create account"
             variant="gradient"
             size="lg"
             fullWidth
             loading={loading}
-            disabled={!isValid}
-            onPress={handleSendOtp}
+            disabled={!canSubmit}
+            onPress={handleContinue}
             iconRight={
               !loading ? (
                 <Ionicons name="arrow-forward" size={18} color={colors.white} />
@@ -234,12 +230,8 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  flex: {
-    flex: 1,
-  },
+  root: { flex: 1 },
+  flex: { flex: 1 },
   content: {
     flexGrow: 1,
     paddingTop: 8,

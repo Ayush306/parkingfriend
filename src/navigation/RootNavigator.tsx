@@ -9,6 +9,7 @@ import Splash from "@/screens/Splash/Splash";
 import Onboarding from "@/screens/Onboarding/Onboarding";
 import Welcome from "@/screens/Welcome/Welcome";
 import Login from "@/screens/Login/Login";
+import Register from "@/screens/Register/Register";
 import OtpVerification from "@/screens/OtpVerification/OtpVerification";
 
 // Shared detail screens (reachable from anywhere)
@@ -53,6 +54,7 @@ export function RootNavigator() {
       />
       <Stack.Screen name="Welcome" component={Welcome} />
       <Stack.Screen name="Login" component={Login} />
+      <Stack.Screen name="Register" component={Register} />
       <Stack.Screen name="OtpVerification" component={OtpVerification} />
 
       {/* Main app (tabs) */}

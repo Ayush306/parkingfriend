@@ -50,7 +50,7 @@ const backend = "libsql";
 
 const COLUMNS = {
   users: [
-    "id", "phone", "name", "avatar", "rating", "reviewsCount",
+    "id", "phone", "name", "email", "avatar", "rating", "reviewsCount",
     "verified", "responseTime", "createdAt",
   ],
   spots: [
@@ -86,6 +86,7 @@ const DDL = [
     id TEXT PRIMARY KEY,
     phone TEXT UNIQUE,
     name TEXT NOT NULL,
+    email TEXT,
     avatar TEXT,
     rating REAL DEFAULT 5,
     reviewsCount INTEGER DEFAULT 0,
@@ -177,6 +178,7 @@ const MIGRATIONS = [
   { table: "host_requests", column: "bookingId", ddl: "ALTER TABLE host_requests ADD COLUMN bookingId TEXT" },
   { table: "spots", column: "capacity", ddl: "ALTER TABLE spots ADD COLUMN capacity INTEGER DEFAULT 1" },
   { table: "spots", column: "views", ddl: "ALTER TABLE spots ADD COLUMN views INTEGER DEFAULT 0" },
+  { table: "users", column: "email", ddl: "ALTER TABLE users ADD COLUMN email TEXT" },
 ];
 
 let initPromise = null;
@@ -337,6 +339,7 @@ function toUser(userRow) {
     id: userRow.id,
     name: userRow.name,
     phone: userRow.phone,
+    email: userRow.email || undefined,
     avatar: userRow.avatar || undefined,
     verified: !!userRow.verified,
     memberSince: (userRow.createdAt || new Date().toISOString()).slice(0, 10),
@@ -493,12 +496,13 @@ async function findUserByPhone(phone) {
   return users.find((u) => normalizePhone(u.phone) === target) || null;
 }
 
-async function createUser({ phone, name }) {
+async function createUser({ phone, name, email, avatar }) {
   const row = {
     id: genId("u"),
     phone: String(phone).trim(),
-    name: name || "ParkingFriend User",
-    avatar: null,
+    name: (name && String(name).trim()) || "ParkingFriend User",
+    email: email ? String(email).trim() : null,
+    avatar: avatar || null,
     rating: 5,
     reviewsCount: 0,
     verified: true,
@@ -506,6 +510,16 @@ async function createUser({ phone, name }) {
     createdAt: new Date().toISOString(),
   };
   return insertRow("users", row);
+}
+
+/** Update a user's editable profile fields (name / email / avatar). */
+async function updateUserProfile(id, patch) {
+  const clean = {};
+  if (typeof patch.name === "string" && patch.name.trim()) clean.name = patch.name.trim();
+  if (patch.email !== undefined) clean.email = patch.email ? String(patch.email).trim() : null;
+  if (patch.avatar !== undefined) clean.avatar = patch.avatar || null;
+  if (Object.keys(clean).length === 0) return getRow("users", id);
+  return updateRow("users", id, clean);
 }
 
 /* ───────────────────────── repository: spots ───────────────────────── */
@@ -702,6 +716,7 @@ module.exports = {
   getUserById,
   findUserByPhone,
   createUser,
+  updateUserProfile,
   // spots
   listSpots,
   getSpotRow,

@@ -22,12 +22,13 @@ export default function Welcome() {
   const { colors, spacing, radius, typography, gradients } = useTheme();
 
   const goToLogin = useCallback(() => {
+    haptics.light();
     navigation.navigate("Login");
   }, [navigation]);
 
-  const exploreAsGuest = useCallback(() => {
+  const goToRegister = useCallback(() => {
     haptics.light();
-    navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+    navigation.navigate("Register");
   }, [navigation]);
 
   return (
@@ -154,25 +155,25 @@ export default function Welcome() {
             style={{ marginTop: spacing.xxxl }}
           >
             <Button
-              label="Continue with phone"
+              label="Log in"
               variant="gradient"
               size="lg"
               fullWidth
               onPress={goToLogin}
               iconLeft={
-                <Ionicons name="call-outline" size={20} color={colors.white} />
+                <Ionicons name="log-in-outline" size={20} color={colors.white} />
               }
             />
             <View style={{ height: spacing.sm }} />
             <Button
-              label="Explore as guest"
-              variant="ghost"
+              label="Register"
+              variant="outline"
               size="lg"
               fullWidth
-              onPress={exploreAsGuest}
+              onPress={goToRegister}
               iconRight={
                 <Ionicons
-                  name="arrow-forward"
+                  name="person-add-outline"
                   size={18}
                   color={colors.primary}
                 />
