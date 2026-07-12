@@ -308,7 +308,10 @@ export default function SpotDetail() {
                 fontSize: typography.sizes.md,
               }}
             >
-              {spot.area}, {spot.city} · {formatDistance(spot.distanceMeters)} from {spot.nearStation}
+              {[spot.area, spot.city].filter(Boolean).join(", ")}
+              {spot.nearStation
+                ? ` · ${formatDistance(spot.distanceMeters)} from ${spot.nearStation}`
+                : ""}
             </Text>
           </View>
 

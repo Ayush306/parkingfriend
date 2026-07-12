@@ -68,8 +68,13 @@ router.post("/listings", ah(async (req, res) => {
   const pricePerHour = Number.isFinite(Number(p.pricePerHour)) && Number(p.pricePerHour) >= 0
     ? Number(p.pricePerHour)
     : Math.max(1, Math.round(pricePerDay / 8));
-  const latitude = Number.isFinite(Number(p.latitude)) ? Number(p.latitude) : 28.4595;
-  const longitude = Number.isFinite(Number(p.longitude)) ? Number(p.longitude) : 77.0266;
+  // Mandatory, no fallback city/coordinates: hosts list from anywhere in the
+  // world, so a missing pin is a real error, never a guessed location.
+  const latitude = Number(p.latitude);
+  const longitude = Number(p.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return res.status(400).json({ error: "A pinned location (latitude/longitude) is required" });
+  }
 
   const id = db.genId("spot");
   const row = {
@@ -81,7 +86,9 @@ router.post("/listings", ah(async (req, res) => {
     capacity,
     address: p.address.trim(),
     area: p.area.trim(),
-    city: isNonEmptyString(p.city) ? p.city.trim() : "Gurugram",
+    // No fallback city — real listings only ever carry the host's actual
+    // picked location; blank is honest when no city name was resolved.
+    city: isNonEmptyString(p.city) ? p.city.trim() : "",
     landmark: p.landmark.trim(),
     nearStation: p.nearStation.trim(),
     distanceMeters: 400,

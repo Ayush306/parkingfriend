@@ -161,17 +161,6 @@ export default function Splash() {
           }}
           style={[styles.dot, { backgroundColor: colors.white }]}
         />
-        <Text
-          style={{
-            marginTop: spacing.md,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.xs,
-            color: "rgba(255,255,255,0.75)",
-            letterSpacing: 0.4,
-          }}
-        >
-          Gurugram · India
-        </Text>
       </MotiView>
     </View>
   );

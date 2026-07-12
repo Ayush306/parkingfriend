@@ -348,7 +348,7 @@ export default function About() {
         </Card>
       </MotiView>
 
-      {/* Legal + made in India */}
+      {/* Legal */}
       <View style={{ alignItems: "center", marginTop: spacing.xxl }}>
         <Text
           style={{
@@ -389,7 +389,7 @@ export default function About() {
               fontSize: typography.sizes.sm,
             }}
           >
-            {"  "}in India
+            {"  "}for parking friends everywhere
           </Text>
         </View>
         <Text

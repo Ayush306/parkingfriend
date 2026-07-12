@@ -34,9 +34,6 @@ import { placesService, type Place } from "@/services/placesService";
 import { SPOT_TYPE_OPTIONS, VEHICLE_OPTIONS, type SpotTypeId } from "@/constants";
 import type { ParkingSpot, VehicleType } from "@/models/types";
 
-/** Gurugram centre — where the map starts before a location is chosen. */
-const DEFAULT_CENTER = { latitude: 28.4595, longitude: 77.0266 };
-
 /** Capacity stepper bounds (the server allows up to 50; the form keeps it simple). */
 const CAPACITY_MIN = 1;
 const CAPACITY_MAX = 20;
@@ -77,7 +74,13 @@ export default function ListSpace() {
   // --- location (mandatory) ---
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
+  // No hardcoded city fallback — this app has hosts everywhere in the world,
+  // so the map only centers once we know a REAL location (the host's GPS
+  // position, a search result, or a dropped pin). Null = not resolved yet.
+  const [mapCenter, setMapCenter] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [locating, setLocating] = useState(false);
   const debouncedQuery = useDebounce(query, 350);
@@ -105,9 +108,13 @@ export default function ListSpace() {
   );
 
   // Real landmarks around the current map centre (free Photon reverse).
+  // No-ops until a real center is known — never queries around a guessed city.
   const nearbyResults = useAsync<Place[]>(
-    () => placesService.nearby(mapCenter.latitude, mapCenter.longitude, 8),
-    [mapCenter.latitude, mapCenter.longitude]
+    () =>
+      mapCenter
+        ? placesService.nearby(mapCenter.latitude, mapCenter.longitude, 8)
+        : Promise.resolve([]),
+    [mapCenter?.latitude, mapCenter?.longitude]
   );
 
   const landmarks = useMemo<PickerLandmark[]>(
@@ -202,6 +209,39 @@ export default function ListSpace() {
       setLocating(false);
     }
   }, [toast]);
+
+  // Center the map on the host's REAL location the moment this screen opens
+  // — this app has hosts everywhere in the world, so it never assumes a
+  // city. Silent if permission is already granted; otherwise prompts once
+  // (pinpointing a location is this screen's whole purpose). If location
+  // is unavailable, the map simply stays unrendered until the host searches
+  // a place or picks "Use my current location" themselves.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") {
+          ({ status } = await Location.requestForegroundPermissionsAsync());
+        }
+        if (status !== "granted" || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!cancelled) {
+          setMapCenter({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        }
+      } catch {
+        // No fallback city — the "no location yet" prompt stays up.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Pick a vehicle type (single-select — exactly one kind per space).
   const toggleVehicleType = useCallback((id: VehicleType) => {
@@ -506,7 +546,7 @@ export default function ListSpace() {
           label="Search a city, town, station or area"
           value={query}
           onChangeText={onChangeQuery}
-          placeholder="e.g. Baraut, Huda City Centre, Sector 29…"
+          placeholder="e.g. Central Station, Downtown, Main Street…"
           iconLeft={<Ionicons name="search" size={18} color={colors.textMuted} />}
         />
 
@@ -604,26 +644,55 @@ export default function ListSpace() {
           style={{ marginTop: spacing.md }}
         />
 
-        {/* Interactive map */}
-        <View style={{ marginTop: spacing.md }}>
-          <MapPicker
-            center={mapCenter}
-            landmarks={landmarks}
-            onPick={onPickFromMap}
-            height={280}
-          />
-        </View>
-        <Text
-          style={{
-            color: colors.textMuted,
-            fontFamily: typography.fonts.body,
-            fontSize: typography.sizes.xs,
-            marginTop: spacing.xs,
-            textAlign: "center",
-          }}
-        >
-          Tap the map or drag the pin to set your exact spot.
-        </Text>
+        {/* Interactive map — only once a real center is known (never a guessed city) */}
+        {mapCenter ? (
+          <>
+            <View style={{ marginTop: spacing.md }}>
+              <MapPicker
+                center={mapCenter}
+                landmarks={landmarks}
+                onPick={onPickFromMap}
+                height={280}
+              />
+            </View>
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontFamily: typography.fonts.body,
+                fontSize: typography.sizes.xs,
+                marginTop: spacing.xs,
+                textAlign: "center",
+              }}
+            >
+              Tap the map or drag the pin to set your exact spot.
+            </Text>
+          </>
+        ) : (
+          <View
+            style={[
+              styles.hintBox,
+              {
+                backgroundColor: colors.surfaceAlt,
+                borderRadius: radius.lg,
+                marginTop: spacing.md,
+              },
+            ]}
+          >
+            <Ionicons name="map-outline" size={18} color={colors.textMuted} />
+            <Text
+              style={{
+                marginLeft: spacing.sm,
+                flex: 1,
+                color: colors.textSecondary,
+                fontFamily: typography.fonts.body,
+                fontSize: typography.sizes.sm,
+              }}
+            >
+              Search your area above, or tap "Use my current location", to
+              pin your exact spot on the map.
+            </Text>
+          </View>
+        )}
 
         {/* Nearby landmarks */}
         {landmarks.length > 0 ? (
@@ -1090,7 +1159,7 @@ export default function ListSpace() {
           label="Additional name for the parking"
           value={title}
           onChangeText={setTitle}
-          placeholder="e.g. Behind Sharma Sweets, blue gate"
+          placeholder="e.g. Behind the corner store, blue gate"
           maxLength={60}
         />
         <View style={{ height: spacing.md }} />

@@ -71,8 +71,10 @@ function normalizeSpot(raw: any): ParkingSpot {
     landmark: raw?.landmark ?? "",
     nearStation: raw?.nearStation ?? "",
     distanceMeters: Number(raw?.distanceMeters ?? 0),
-    latitude: Number(raw?.latitude ?? 28.4595),
-    longitude: Number(raw?.longitude ?? 77.0266),
+    // No fallback city — the server always requires real coordinates, so
+    // this only guards against a truly malformed response.
+    latitude: Number(raw?.latitude ?? 0),
+    longitude: Number(raw?.longitude ?? 0),
     pricePerHour: Number(raw?.pricePerHour ?? 0),
     pricePerDay: Number(raw?.pricePerDay ?? 0),
     isFree: !!raw?.isFree || Number(raw?.pricePerDay ?? 0) === 0,

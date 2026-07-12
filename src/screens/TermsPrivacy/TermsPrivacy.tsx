@@ -29,12 +29,12 @@ const TERMS: Section[] = [
     body: `${APP_NAME} is a marketplace that connects drivers looking for parking with hosts who list their available space. We are not a party to the actual parking arrangement; hosts and drivers transact directly through the platform. You must be at least 18 years old to use ${APP_NAME}.`,
   },
   {
-    heading: "3. Bookings and payments",
-    body: "When you book a spot, you agree to pay the listed price for the selected duration. Prices are shown in Indian Rupees (₹) and include applicable taxes unless stated otherwise. Payments are processed through the in-app wallet, UPI or cards. A booking is confirmed only after successful payment and host acceptance.",
+    heading: "3. Requests and settling payment",
+    body: `${APP_NAME} does not process payments, hold funds, or charge either party a fee. When you request a spot, the host may accept or decline. Once accepted, each side's phone number is shared so you can coordinate directly. Any price is agreed and settled directly between host and driver — in cash, UPI or any method you both prefer — entirely outside the app.`,
   },
   {
-    heading: "4. Cancellations and refunds",
-    body: "You may cancel a booking before the parking start time for a full refund to your ParkingFriend Wallet. Cancellations after the start time may not be eligible for a refund. Hosts who repeatedly cancel confirmed bookings may be removed from the platform.",
+    heading: "4. Cancellations",
+    body: "You may withdraw a pending request at any time before the host accepts, at no cost. Once a host has accepted, please contact them directly if your plans change. Since no payment is processed through the app, there is nothing to refund on our end — any reimbursement for a cancelled arrangement is a matter between host and driver.",
   },
   {
     heading: "5. Host responsibilities",
@@ -42,7 +42,7 @@ const TERMS: Section[] = [
   },
   {
     heading: "6. Prohibited conduct",
-    body: "You agree not to misuse the platform, including creating fraudulent listings, harassing other users, circumventing payments, or using a spot for anything other than lawful parking of the declared vehicle. Violations may result in suspension or permanent removal.",
+    body: "You agree not to misuse the platform, including creating fraudulent listings, harassing other users, sharing another person's shared contact details for anything other than arranging the booking, or using a spot for anything other than lawful parking of the declared vehicle. Violations may result in suspension or permanent removal.",
   },
   {
     heading: "7. Limitation of liability",
@@ -57,11 +57,11 @@ const TERMS: Section[] = [
 const PRIVACY: Section[] = [
   {
     heading: "1. Information we collect",
-    body: "We collect the information you provide when you register — such as your name, phone number and email — along with booking history, vehicle details you add, and payment metadata. We also collect device and usage information to keep the app secure and improve your experience.",
+    body: "We collect the information you provide when you register — such as your name, phone number and email — along with your booking/request history and vehicle details you add. We also collect device and usage information to keep the app secure and improve your experience.",
   },
   {
     heading: "2. How we use your data",
-    body: `We use your information to create and manage bookings, process payments, connect you with hosts or drivers, send booking and safety notifications, provide support, and improve ${APP_NAME}. We do not sell your personal data.`,
+    body: `We use your information to create and manage requests and listings, connect you with hosts or drivers, send booking and safety notifications, provide support, and improve ${APP_NAME}. We do not sell your personal data.`,
   },
   {
     heading: "3. Location information",
@@ -72,8 +72,8 @@ const PRIVACY: Section[] = [
     body: "To complete a booking, we share limited details between the driver and host — such as name, vehicle type and a contact number once a booking is confirmed. We share only what is needed to make the parking arrangement work.",
   },
   {
-    heading: "5. Payment security",
-    body: "Payment details are handled by trusted, PCI-compliant payment partners. We store only the metadata needed for receipts and refunds, never your full card number.",
+    heading: "5. No payment processing",
+    body: `${APP_NAME} never processes, stores or has access to any payment or card information. Every price is settled directly between host and driver, outside the app, in whatever way you both agree.`,
   },
   {
     heading: "6. Data retention",

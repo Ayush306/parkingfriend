@@ -178,9 +178,11 @@ function buildOlaVectorHtml(
           L.marker([USER.latitude, USER.longitude], { icon: youIcon }).addTo(map);
           pts.push([USER.latitude, USER.longitude]);
         }
+        // No markers at all — zoom out to a neutral world view rather than
+        // guessing any specific city (this app has users everywhere).
         if (pts.length === 1) { map.setView(pts[0], ZOOM); }
         else if (pts.length > 1) { map.fitBounds(pts, { padding: [40, 40] }); }
-        else { map.setView([28.4595, 77.0266], 12); }
+        else { map.setView([20, 0], 2); }
       };
       document.head.appendChild(js);
     } catch (e) {}
@@ -239,8 +241,10 @@ function buildOlaVectorHtml(
       var map = new maplibregl.Map({
         container: 'map',
         style: styleObj,
-        center: [77.0266, 28.4595],
-        zoom: 12,
+        // Neutral placeholder — fitAll() (called right after) always
+        // re-centers on the real markers/user location before this is seen.
+        center: [0, 20],
+        zoom: 2,
         interactive: INTERACTIVE,
         attributionControl: { compact: true },
         transformRequest: function (url) {
@@ -284,6 +288,9 @@ function buildOlaVectorHtml(
           var b = new maplibregl.LngLatBounds(all[0], all[0]);
           all.forEach(function (p) { b.extend(p); });
           map.fitBounds(b, { padding: 48, maxZoom: 16, duration: 0 });
+        } else {
+          // No markers at all — a neutral world view, never a guessed city.
+          map.jumpTo({ center: [0, 20], zoom: 2 });
         }
       }
       fitAll();
@@ -444,9 +451,10 @@ export function buildMapHtml(
       pts.push([USER.latitude, USER.longitude]);
     }
     function fitToMarkers() {
+      // No markers at all — a neutral world view, never a guessed city.
       if (pts.length === 1) { map.setView(pts[0], ${zoom}); }
       else if (pts.length > 1) { map.fitBounds(pts, { padding: [40, 40] }); }
-      else { map.setView([28.4595, 77.0266], 12); }
+      else { map.setView([20, 0], 2); }
     }
     fitToMarkers();
     if (ROUTE && ROUTE.from && ROUTE.to && window.fetch) {

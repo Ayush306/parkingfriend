@@ -29,9 +29,9 @@ export interface CreateListingPayload {
   city?: string;
   landmark: string;
   nearStation: string;
-  /** Real coordinates chosen on the map (falls back to Gurugram centre). */
-  latitude?: number;
-  longitude?: number;
+  /** Real coordinates the host chose on the map — mandatory, no fallback city. */
+  latitude: number;
+  longitude: number;
   pricePerHour: number;
   pricePerDay: number;
   isFree?: boolean;
@@ -100,12 +100,14 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     views: 0,
     address: payload.address.trim(),
     area: payload.area.trim(),
-    city: (payload.city ?? "Gurugram").trim(),
+    // No fallback city — a listing's city is whatever the host's real
+    // picked location says, or blank (never a guessed/hardcoded place).
+    city: (payload.city ?? "").trim(),
     landmark: payload.landmark.trim(),
     nearStation: payload.nearStation.trim(),
     distanceMeters: 400,
-    latitude: payload.latitude ?? 28.4595,
-    longitude: payload.longitude ?? 77.0266,
+    latitude: payload.latitude,
+    longitude: payload.longitude,
     pricePerHour: payload.isFree ? 0 : payload.pricePerHour,
     pricePerDay: payload.isFree ? 0 : payload.pricePerDay,
     isFree: !!payload.isFree,

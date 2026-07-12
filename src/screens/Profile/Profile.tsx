@@ -512,7 +512,7 @@ export default function Profile() {
             fontSize: typography.sizes.xs,
           }}
         >
-          ParkingFriend v1.0.0 · Made in Gurugram
+          ParkingFriend v1.0.0
         </Text>
       </ScrollView>
 

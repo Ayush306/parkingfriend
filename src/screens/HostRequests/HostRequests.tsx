@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -45,12 +45,6 @@ function statusLabel(status: HostRequest["status"]): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-/** A deterministic mock contact number derived from the request id. */
-function contactFor(id: string): string {
-  const digits = id.replace(/\D/g, "").padEnd(4, "7").slice(0, 4);
-  return `+91 9${digits}0 ${digits}88`;
-}
-
 interface RequestCardProps {
   request: HostRequest;
   index: number;
@@ -60,8 +54,17 @@ interface RequestCardProps {
 
 function RequestCard({ request, index, busy, onRespond }: RequestCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
+  const toast = useToast();
   const isPending = request.status === "pending";
   const isAccepted = request.status === "accepted";
+
+  const callRequester = () => {
+    if (!request.requesterPhone) return;
+    haptics.light();
+    Linking.openURL(`tel:${request.requesterPhone.replace(/\s+/g, "")}`).catch(
+      () => toast.show("Couldn't open the dialer on this device.", "error")
+    );
+  };
 
   return (
     <MotiView
@@ -168,50 +171,62 @@ function RequestCard({ request, index, busy, onRespond }: RequestCardProps) {
             from={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ type: "timing", duration: 300 }}
-            style={[
-              styles.contactBox,
-              {
-                backgroundColor: colors.primaryLight,
-                borderRadius: radius.md,
-                marginTop: spacing.lg,
-                padding: spacing.md,
-              },
-            ]}
           >
-            <View
-              style={[
-                styles.contactIcon,
-                { backgroundColor: colors.primary, borderRadius: radius.pill },
+            <Pressable
+              onPress={callRequester}
+              disabled={!request.requesterPhone}
+              accessibilityRole="button"
+              accessibilityLabel={
+                request.requesterPhone
+                  ? `Call ${request.requesterName} at ${request.requesterPhone}`
+                  : "Contact not available"
+              }
+              style={({ pressed }) => [
+                styles.contactBox,
+                {
+                  backgroundColor: colors.primaryLight,
+                  borderRadius: radius.md,
+                  marginTop: spacing.lg,
+                  padding: spacing.md,
+                  opacity: pressed ? 0.85 : 1,
+                },
               ]}
             >
-              <Ionicons name="call" size={16} color={colors.white} />
-            </View>
-            <View style={{ flex: 1, marginLeft: spacing.sm }}>
-              <Text
-                style={{
-                  color: colors.primaryDark,
-                  fontFamily: typography.fonts.bodySemi,
-                  fontSize: typography.sizes.sm,
-                }}
+              <View
+                style={[
+                  styles.contactIcon,
+                  { backgroundColor: colors.primary, borderRadius: radius.pill },
+                ]}
               >
-                Contact shared
-              </Text>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontFamily: typography.fonts.bodyMedium,
-                  fontSize: typography.sizes.md,
-                  marginTop: 1,
-                }}
-              >
-                {contactFor(request.id)}
-              </Text>
-            </View>
-            <Ionicons
-              name="checkmark-circle"
-              size={22}
-              color={colors.success}
-            />
+                <Ionicons name="call" size={16} color={colors.white} />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text
+                  style={{
+                    color: colors.primaryDark,
+                    fontFamily: typography.fonts.bodySemi,
+                    fontSize: typography.sizes.sm,
+                  }}
+                >
+                  {request.requesterPhone ? "Tap to call" : "Contact shared"}
+                </Text>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontFamily: typography.fonts.bodyMedium,
+                    fontSize: typography.sizes.md,
+                    marginTop: 1,
+                  }}
+                >
+                  {request.requesterPhone || "Not available"}
+                </Text>
+              </View>
+              <Ionicons
+                name="checkmark-circle"
+                size={22}
+                color={colors.success}
+              />
+            </Pressable>
           </MotiView>
         ) : (
           <View style={[styles.declinedRow, { marginTop: spacing.md }]}>

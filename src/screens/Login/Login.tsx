@@ -26,25 +26,36 @@ export default function Login() {
   const { sendOtp } = useAuth();
   const toast = useToast();
 
+  // Full international number, digits with an optional leading "+" — this
+  // app has hosts and drivers everywhere, so no country/dial-code is assumed.
   const [phone, setPhone] = useState("");
   const [touched, setTouched] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const isValid = useMemo(() => /^[6-9]\d{9}$/.test(phone), [phone]);
+  // Same 8–15 digit rule the server itself validates against (see
+  // server/src/routes/auth.js normalizePhone) — works for any country's
+  // numbers, not just one.
+  const digitCount = useMemo(() => phone.replace(/\D/g, "").length, [phone]);
+  const isValid = digitCount >= 8 && digitCount <= 15;
   const showError = touched && phone.length > 0 && !isValid;
 
   const handleChange = useCallback((text: string) => {
-    setPhone(text.replace(/[^0-9]/g, "").slice(0, 10));
+    // Keep digits, and a single leading "+" if the user typed a country code.
+    const cleaned = text.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+    setPhone(cleaned.slice(0, 16));
   }, []);
 
   const handleSendOtp = useCallback(async () => {
     setTouched(true);
     if (!isValid) {
       haptics.warning();
-      toast.show("Enter a valid 10-digit mobile number", "warning");
+      toast.show(
+        "Enter your phone number with country code (e.g. +1 415 555 0123).",
+        "warning"
+      );
       return;
     }
-    const fullPhone = `+91 ${phone}`;
+    const fullPhone = phone.startsWith("+") ? phone : `+${phone}`;
     try {
       setLoading(true);
       await sendOtp(fullPhone);
@@ -137,52 +148,39 @@ export default function Login() {
               Mobile number
             </Text>
 
-            <View style={styles.phoneRow}>
-              {/* +91 country prefix */}
-              <View
-                style={[
-                  styles.prefix,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                    borderRadius: radius.md,
-                    marginRight: spacing.sm,
-                  },
-                ]}
-              >
-                <Text style={styles.flag}>🇮🇳</Text>
+            <Input
+              value={phone}
+              onChangeText={handleChange}
+              placeholder="+1 415 555 0123"
+              keyboardType="phone-pad"
+              maxLength={16}
+              autoFocus
+              error={
+                showError
+                  ? "Enter your number with country code (8–15 digits)"
+                  : undefined
+              }
+              iconLeft={
                 <Text
                   style={{
                     fontFamily: typography.fonts.bodySemi,
                     fontSize: typography.sizes.md,
-                    color: colors.text,
+                    color: colors.textSecondary,
                   }}
                 >
-                  +91
+                  +
                 </Text>
-              </View>
-
-              <View style={styles.flex}>
-                <Input
-                  value={phone}
-                  onChangeText={handleChange}
-                  placeholder="98765 43210"
-                  keyboardType="number-pad"
-                  maxLength={10}
-                  autoFocus
-                  error={showError ? "Enter a valid 10-digit number" : undefined}
-                  right={
-                    isValid ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color={colors.success}
-                      />
-                    ) : undefined
-                  }
-                />
-              </View>
-            </View>
+              }
+              right={
+                isValid ? (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color={colors.success}
+                  />
+                ) : undefined
+              }
+            />
 
             <View style={[styles.hintRow, { marginTop: spacing.md }]}>
               <Ionicons
@@ -252,21 +250,6 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: "center",
     justifyContent: "center",
-  },
-  phoneRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  prefix: {
-    height: 52,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  flag: {
-    fontSize: 18,
-    marginRight: 6,
   },
   hintRow: {
     flexDirection: "row",

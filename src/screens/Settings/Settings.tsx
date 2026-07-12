@@ -177,7 +177,7 @@ export default function Settings() {
         <ListItem
           title="Region"
           subtitle="Currency & distance units"
-          onPress={() => toast.show("Region locked to India (₹, km)", "info")}
+          onPress={() => toast.show("Region & currency settings are coming soon.", "info")}
           leftIcon={
             <Ionicons name="map-outline" size={20} color={colors.primary} />
           }
@@ -191,7 +191,7 @@ export default function Settings() {
                   marginRight: 6,
                 }}
               >
-                India · ₹
+                Coming soon
               </Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </View>

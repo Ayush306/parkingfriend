@@ -7,7 +7,7 @@
 export const APP_NAME = "ParkingFriend";
 export const APP_TAGLINE = "Your parking friend";
 export const APP_DESCRIPTION =
-  "Find and book trusted home & near-station parking — or list your empty space and earn.";
+  "Find and book trusted parking near you — or list your empty space and earn.";
 
 export const SUPPORT_EMAIL = "help@parkingfriend.in";
 export const SUPPORT_PHONE = "+91 98110 22044";
@@ -35,18 +35,6 @@ export const SOCIAL_LINKS = {
   facebook: "https://facebook.com/parkingfriend",
   linkedin: "https://linkedin.com/company/parkingfriend",
 } as const;
-
-/** Metro stations ParkingFriend serves in Gurugram. */
-export const STATIONS = [
-  "Huda City Centre",
-  "IFFCO Chowk",
-  "MG Road",
-  "Sikanderpur",
-  "Sohna Road",
-  "Rajiv Chowk",
-] as const;
-
-export type Station = (typeof STATIONS)[number];
 
 /**
  * Vehicle types a spot can accept / a driver can book for.
@@ -158,6 +146,5 @@ export const STORAGE_KEYS = {
   listings: "pm_listings",
 } as const;
 
-export const DEFAULT_CITY = "Gurugram";
 export const OTP_LENGTH = 6;
 export const APP_VERSION = "1.0.0";

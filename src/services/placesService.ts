@@ -172,11 +172,9 @@ async function search(query: string): Promise<Place[]> {
     }
   }
 
-  // Bias toward Delhi NCR so nearby places rank first, but allow anywhere.
+  // No geographic bias — this is a worldwide fallback, not a single-city one.
   const url =
-    "https://photon.komoot.io/api/?q=" +
-    encodeURIComponent(q) +
-    "&limit=6&lang=en&lat=28.6139&lon=77.209";
+    "https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=6&lang=en";
   const features = await fetchFeatures(url);
   const places: Place[] = [];
   for (let i = 0; i < features.length; i += 1) {

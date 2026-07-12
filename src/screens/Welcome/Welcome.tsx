@@ -107,7 +107,7 @@ export default function Welcome() {
                 lineHeight: typography.sizes.md * 1.5,
               }}
             >
-              Your parking friend in Gurugram. Reserve a trusted spot in seconds.
+              Your parking friend, wherever you are. Reserve a trusted spot in seconds.
             </Text>
           </MotiView>
 

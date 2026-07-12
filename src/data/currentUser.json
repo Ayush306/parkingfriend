@@ -1,11 +1,9 @@
 {
   "id": "u1",
-  "name": "Aarav Malhotra",
-  "phone": "+91 98110 24567",
-  "email": "aarav.malhotra@gmail.com",
-  "avatar": "https://i.pravatar.cc/150?img=12",
+  "name": "ParkingFriend User",
+  "phone": "",
   "verified": true,
   "memberSince": "2023-03-14",
-  "rating": 4.8,
+  "rating": 5,
   "role": "both"
 }
