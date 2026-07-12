@@ -203,12 +203,10 @@ export default function ListSpace() {
     }
   }, [toast]);
 
-  // Toggle a vehicle-type chip (multi-select — a space can fit car AND bike).
+  // Pick a vehicle type (single-select — exactly one kind per space).
   const toggleVehicleType = useCallback((id: VehicleType) => {
     haptics.selection();
-    setVehicleTypes((prev) =>
-      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
-    );
+    setVehicleTypes([id]);
   }, []);
 
   // Step the capacity up or down, clamped to the stepper bounds.
@@ -315,7 +313,7 @@ export default function ListSpace() {
     }
     if (vehicleTypes.length === 0) {
       haptics.error();
-      toast.show("Select at least one vehicle type that fits your space.", "error");
+      toast.show("Select the vehicle type your space is for.", "error");
       return;
     }
     const priceNum = parseInt(price.replace(/[^0-9]/g, ""), 10);
@@ -809,7 +807,7 @@ export default function ListSpace() {
             marginBottom: spacing.sm,
           }}
         >
-          Pick every vehicle type your space can take.
+          Pick the vehicle type your space is for.
         </Text>
         <View style={styles.chipWrap}>
           {VEHICLE_OPTIONS.map((opt) => {
