@@ -224,9 +224,11 @@ export default function SearchResults() {
                         {item.title}
                       </Text>
                       <Text
+                        numberOfLines={1}
                         style={{ marginTop: 2, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}
                       >
                         {formatAway(item.awayMeters)}
+                        {item.host?.name ? ` · Listed by ${item.host.name}` : ""}
                       </Text>
                     </View>
                     <Text

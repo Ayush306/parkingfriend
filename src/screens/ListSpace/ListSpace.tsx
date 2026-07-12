@@ -903,49 +903,7 @@ export default function ListSpace() {
         </View>
       </Card>
 
-      {/* Optional details */}
-      <Card elevated style={{ marginBottom: spacing.lg }}>
-        <View style={styles.sectionHead}>
-          <Text
-            style={{
-              color: colors.text,
-              fontFamily: typography.fonts.heading,
-              fontSize: typography.sizes.md,
-            }}
-          >
-            A few more details
-          </Text>
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontFamily: typography.fonts.bodyMedium,
-              fontSize: typography.sizes.xs,
-            }}
-          >
-            optional
-          </Text>
-        </View>
-
-        <Input
-          label="Title"
-          value={title}
-          onChangeText={setTitle}
-          placeholder="Auto-filled from your location if left blank"
-          maxLength={60}
-        />
-        <View style={{ height: spacing.md }} />
-        <Input
-          label="Address"
-          value={address}
-          onChangeText={setAddress}
-          placeholder="House / tower, block (optional)"
-          iconLeft={
-            <Ionicons name="home-outline" size={18} color={colors.textMuted} />
-          }
-        />
-      </Card>
-
-      {/* Price (mandatory) */}
+      {/* Price (mandatory) — right after "how many can park" */}
       <Card elevated style={{ marginBottom: spacing.lg }}>
         <View style={styles.sectionHead}>
           <Text
@@ -1090,6 +1048,48 @@ export default function ListSpace() {
             </Pressable>
           ) : null}
         </View>
+      </Card>
+
+      {/* Optional details */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <View style={styles.sectionHead}>
+          <Text
+            style={{
+              color: colors.text,
+              fontFamily: typography.fonts.heading,
+              fontSize: typography.sizes.md,
+            }}
+          >
+            A few more details
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontFamily: typography.fonts.bodyMedium,
+              fontSize: typography.sizes.xs,
+            }}
+          >
+            optional
+          </Text>
+        </View>
+
+        <Input
+          label="Additional name for the parking"
+          value={title}
+          onChangeText={setTitle}
+          placeholder="e.g. Behind Sharma Sweets, blue gate"
+          maxLength={60}
+        />
+        <View style={{ height: spacing.md }} />
+        <Input
+          label="Address"
+          value={address}
+          onChangeText={setAddress}
+          placeholder="House / tower, block (optional)"
+          iconLeft={
+            <Ionicons name="home-outline" size={18} color={colors.textMuted} />
+          }
+        />
       </Card>
 
       <Button
