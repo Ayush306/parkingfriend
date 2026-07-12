@@ -84,6 +84,12 @@ export interface BuildMapOptions {
   interactive?: boolean;
   /** The user's GPS position — drawn as a pulsing blue dot and kept in view. */
   userLocation?: { latitude: number; longitude: number } | null;
+  /**
+   * Skip the MapLibre/Ola vector path and render with Leaflet raster tiles.
+   * Used on web, where embedded dev-preview browsers can't run MapLibre's
+   * workers; the raster map then uses detail-rich OSM standard tiles.
+   */
+  forceLeaflet?: boolean;
 }
 
 /**
@@ -186,6 +192,24 @@ function buildOlaVectorHtml(
   }
   function boot() {
     dbg('boot');
+    // MapLibre's default worker loads its code from the CDN *inside* the
+    // worker (importScripts), which silently hangs in sandboxed WebView /
+    // srcdoc iframes. Fetch the self-contained CSP worker build ourselves
+    // and hand MapLibre a same-origin blob URL instead.
+    fetch('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl-csp-worker.js')
+      .then(function (res) {
+        if (!res.ok) { throw new Error('worker HTTP ' + res.status); }
+        return res.blob();
+      })
+      .then(function (blob) {
+        maplibregl.setWorkerUrl(URL.createObjectURL(blob));
+        dbg('workerblob');
+        bootStyle();
+      })
+      .catch(function (e) { leafletFallback('workerfetch:' + String(e).slice(0, 40)); });
+  }
+
+  function bootStyle() {
     // Fetch the Ola style ourselves so we can strip broken layers (their
     // styles reference a "3d_model" source-layer that doesn't exist in the
     // tileset, which would keep MapLibre in a permanent "loading" state).
@@ -319,10 +343,22 @@ export function buildMapHtml(
   const useMapbox = !!MAPBOX_TOKEN && MAPBOX_TOKEN.startsWith("pk.");
   // Ola vector tiles (India-native detail) whenever the key exists and no
   // explicit Mapbox override is configured.
-  if (!useMapbox && isOlaMapsEnabled()) {
+  if (!useMapbox && isOlaMapsEnabled() && !opts.forceLeaflet) {
     return buildOlaVectorHtml(markers, opts);
   }
-  const tiles = pickTiles(opts.dark);
+  let tiles = pickTiles(opts.dark);
+  if (opts.forceLeaflet && !useMapbox && !opts.dark) {
+    // Raster path chosen on purpose (web): OSM standard shows far more
+    // local detail (lanes, buildings, shops) than CARTO's minimal style.
+    tiles = {
+      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      fallbackUrl: tiles.url,
+      tileSize: 256,
+      zoomOffset: 0,
+      subdomains: "abc",
+      attribution: "© OpenStreetMap contributors",
+    };
+  }
   const tileUrl = tiles.url;
   const tileSize = tiles.tileSize;
   const zoomOffset = tiles.zoomOffset;

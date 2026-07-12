@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   View,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   ActivityIndicator,
@@ -58,6 +59,9 @@ export function LiveMapChrome({
     bg: colors.surfaceAlt,
     dark: isDark,
     route,
+    // Web (incl. the dev preview) can't run MapLibre's workers reliably —
+    // use the Leaflet raster map there; native gets Ola vector tiles.
+    forceLeaflet: Platform.OS === "web",
   };
 
   // Key on VALUE, not identity: screens rebuild the markers array on every
