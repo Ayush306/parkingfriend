@@ -34,6 +34,8 @@ export interface ParkingSpot {
   capacity: number;
   /** capacity minus currently accepted bookings — what's actually left right now. */
   remainingCount: number;
+  /** How many times drivers have opened this listing (host-facing interest metric). */
+  views: number;
   address: string;
   area: string;
   city: string;

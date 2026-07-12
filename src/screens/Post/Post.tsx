@@ -337,7 +337,7 @@ export default function Post() {
                       </Text>
                     </View>
                   </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 }}>
                     <View style={[styles.spaceStatus, { backgroundColor: (sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primaryLight : colors.surfaceAlt }]}>
                       <Ionicons
                         name="car-outline"
@@ -347,6 +347,12 @@ export default function Post() {
                       />
                       <Text style={{ color: (sp.remainingCount ?? sp.capacity ?? 1) > 0 ? colors.primary : colors.textMuted, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
                         {sp.remainingCount ?? sp.capacity ?? 1}/{sp.capacity ?? 1} available
+                      </Text>
+                    </View>
+                    <View style={[styles.spaceStatus, { backgroundColor: colors.surfaceAlt }]}>
+                      <Ionicons name="eye-outline" size={11} color={colors.textSecondary} style={{ marginRight: 3 }} />
+                      <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
+                        {sp.views ?? 0} {(sp.views ?? 0) === 1 ? "view" : "views"}
                       </Text>
                     </View>
                   </View>

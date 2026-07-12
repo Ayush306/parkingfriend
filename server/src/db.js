@@ -58,7 +58,7 @@ const COLUMNS = {
     "landmark", "nearStation", "distanceMeters", "latitude", "longitude",
     "pricePerHour", "pricePerDay", "isFree", "rating", "reviewsCount",
     "images", "amenities", "availableFrom", "availableTo", "instructions",
-    "isFavorite", "available", "createdAt",
+    "isFavorite", "available", "views", "createdAt",
   ],
   bookings: [
     "id", "userId", "spotId", "date", "time", "startTime", "endTime",
@@ -120,6 +120,7 @@ const DDL = [
     instructions TEXT,
     isFavorite INTEGER DEFAULT 0,
     available INTEGER DEFAULT 1,
+    views INTEGER DEFAULT 0,
     createdAt TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS bookings (
@@ -175,6 +176,7 @@ const MIGRATIONS = [
   { table: "host_requests", column: "requesterPhone", ddl: "ALTER TABLE host_requests ADD COLUMN requesterPhone TEXT" },
   { table: "host_requests", column: "bookingId", ddl: "ALTER TABLE host_requests ADD COLUMN bookingId TEXT" },
   { table: "spots", column: "capacity", ddl: "ALTER TABLE spots ADD COLUMN capacity INTEGER DEFAULT 1" },
+  { table: "spots", column: "views", ddl: "ALTER TABLE spots ADD COLUMN views INTEGER DEFAULT 0" },
 ];
 
 let initPromise = null;
@@ -404,6 +406,7 @@ async function toSpot(row) {
     instructions: row.instructions || "",
     isFavorite: !!row.isFavorite,
     available: !!row.available,
+    views: Math.max(0, Number(row.views) || 0),
   };
 }
 
@@ -522,6 +525,23 @@ async function listSpotsByHost(hostId) {
 
 async function insertSpot(row) {
   return insertRow("spots", row);
+}
+
+/**
+ * Bump a spot's view counter by one (a driver opened its detail page).
+ * COALESCE guards legacy rows whose `views` might be NULL. Returns the new count.
+ */
+async function incrementSpotViews(id) {
+  await init();
+  await client.execute({
+    sql: "UPDATE spots SET views = COALESCE(views, 0) + 1 WHERE id = ?",
+    args: [id],
+  });
+  const rs = await client.execute({
+    sql: "SELECT views FROM spots WHERE id = ?",
+    args: [id],
+  });
+  return Number(rs.rows[0] && rs.rows[0].views) || 0;
 }
 
 /* ───────────────────────── repository: bookings ───────────────────────── */
@@ -687,6 +707,7 @@ module.exports = {
   getSpotRow,
   listSpotsByHost,
   insertSpot,
+  incrementSpotViews,
   countActiveBookings,
   // bookings
   listBookingsByUser,

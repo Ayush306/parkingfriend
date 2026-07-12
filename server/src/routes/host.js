@@ -92,6 +92,7 @@ router.post("/listings", ah(async (req, res) => {
     isFree,
     rating: 0,
     reviewsCount: 0,
+    views: 0,
     // Empty when the host added no photos — the app renders a vehicle-type
     // graphic tile instead of a random stock image.
     images: Array.isArray(p.images) ? p.images.map(String) : [],

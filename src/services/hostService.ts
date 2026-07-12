@@ -55,6 +55,7 @@ async function readListings(): Promise<ParkingSpot[]> {
       Number(s.remainingCount ?? s.capacity ?? 1) || 0
     ),
     images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
+    views: Math.max(0, Number(s.views) || 0),
   }));
 }
 
@@ -96,6 +97,7 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     vehicleTypes: payload.vehicleTypes.length ? payload.vehicleTypes : ["car"],
     capacity: Math.max(1, Math.round(payload.capacity || 1)),
     remainingCount: Math.max(1, Math.round(payload.capacity || 1)),
+    views: 0,
     address: payload.address.trim(),
     area: payload.area.trim(),
     city: (payload.city ?? "Gurugram").trim(),

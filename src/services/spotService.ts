@@ -31,6 +31,7 @@ async function readAllSpots(): Promise<ParkingSpot[]> {
     ),
     // Legacy random-placeholder photos render as vehicle graphics instead.
     images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
+    views: Math.max(0, Number(s.views) || 0),
   }));
 }
 
@@ -152,6 +153,31 @@ async function search(query: string, filters: SpotFilters = {}): Promise<Parking
   return results;
 }
 
+/**
+ * Records that a driver opened this spot (increments its view count).
+ * Fire-and-forget — failures are swallowed so viewing never breaks. In demo
+ * mode it bumps the count on the user's own stored listing if it's theirs.
+ */
+async function recordView(id: string): Promise<void> {
+  if (isApiEnabled()) {
+    await apiSpots.recordView(id).catch(() => {});
+    return;
+  }
+  try {
+    const listings = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, []);
+    const idx = listings.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      listings[idx] = {
+        ...listings[idx],
+        views: Math.max(0, Number(listings[idx].views) || 0) + 1,
+      };
+      await writePersisted(STORAGE_KEYS.listings, listings);
+    }
+  } catch {
+    // Best-effort in demo mode.
+  }
+}
+
 /** Returns a single spot by id, or null if not found. */
 async function getById(id: string): Promise<ParkingSpot | null> {
   if (isApiEnabled()) return apiSpots.getById(id);
@@ -206,6 +232,7 @@ export const spotService = {
   getPopular,
   search,
   getById,
+  recordView,
   getFavorites,
   getFavoriteIds,
   toggleFavorite,

@@ -83,4 +83,18 @@ router.get("/:id", ah(async (req, res) => {
   res.json(await db.toSpot(row));
 }));
 
+/**
+ * POST /api/spots/:id/view — a driver opened this spot's detail page.
+ * Public (no auth): the app suppresses the call for the spot's own host, so
+ * a host viewing their own listing doesn't inflate the count. Returns {views}.
+ */
+router.post("/:id/view", ah(async (req, res) => {
+  const row = await db.getSpotRow(req.params.id);
+  if (!row) {
+    return res.status(404).json({ error: "Parking spot not found" });
+  }
+  const views = await db.incrementSpotViews(row.id);
+  res.json({ views });
+}));
+
 module.exports = router;

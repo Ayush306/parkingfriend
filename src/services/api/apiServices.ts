@@ -64,6 +64,7 @@ function normalizeSpot(raw: any): ParkingSpot {
       0,
       Number(raw?.remainingCount ?? raw?.capacity ?? 1) || 0
     ),
+    views: Math.max(0, Number(raw?.views ?? 0) || 0),
     address: raw?.address ?? "",
     area: raw?.area ?? "",
     city: raw?.city ?? "",
@@ -254,6 +255,15 @@ export const apiSpots = {
     } catch {
       return null;
     }
+  },
+
+  /** Record that a driver opened this spot's detail page. Fire-and-forget. */
+  async recordView(id: string): Promise<number> {
+    const res = await http.request<{ views: number }>(
+      `/api/spots/${encodeURIComponent(id)}/view`,
+      { method: "POST", body: {}, auth: false }
+    );
+    return Number(res?.views ?? 0) || 0;
   },
 };
 

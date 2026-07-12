@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { MotiView } from "moti";
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
 import { useFavorites } from "@/hooks/useFavorites";
+import { useAuth } from "@/context/AuthContext";
 import { haptics } from "@/utils/haptics";
 import { spotService } from "@/services/spotService";
 import { bookingService } from "@/services/bookingService";
@@ -86,6 +87,7 @@ export default function SpotDetail() {
   const route = useRoute<any>();
   const { colors, spacing, typography, radius, shadows } = useTheme();
   const { isFavorite, toggle } = useFavorites();
+  const { user } = useAuth();
   const toast = useToast();
 
   const spotId: string = (route.params as any)?.id ?? "";
@@ -98,6 +100,20 @@ export default function SpotDetail() {
     [spotId]
   );
   const spot = spotAsync.data;
+
+  // Count a view once per spot — but not when the host opens their own listing.
+  const viewedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      spot &&
+      spot.id &&
+      viewedRef.current !== spot.id &&
+      spot.hostId !== user?.id
+    ) {
+      viewedRef.current = spot.id;
+      spotService.recordView(spot.id);
+    }
+  }, [spot, user?.id]);
 
   const fav = spot ? isFavorite(spot.id) : false;
 
