@@ -239,13 +239,15 @@ export default function SpotDetail() {
             </View>
           ) : null}
 
-          {/* image counter */}
-          <View style={[styles.counter, { backgroundColor: colors.overlay, borderRadius: radius.pill }]}>
-            <Ionicons name="images-outline" size={13} color={colors.white} />
-            <Text style={[styles.counterText, { color: colors.white, fontFamily: typography.fonts.bodySemi }]}>
-              {imageIndex + 1}/{images.length}
-            </Text>
-          </View>
+          {/* image counter — only when there are real photos */}
+          {spot.images.length > 0 ? (
+            <View style={[styles.counter, { backgroundColor: colors.overlay, borderRadius: radius.pill }]}>
+              <Ionicons name="images-outline" size={13} color={colors.white} />
+              <Text style={[styles.counterText, { color: colors.white, fontFamily: typography.fonts.bodySemi }]}>
+                {imageIndex + 1}/{images.length}
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {/* ── Body ── */}

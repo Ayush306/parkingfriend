@@ -39,6 +39,15 @@ async function readAll(): Promise<Booking[]> {
     STORAGE_KEYS.bookings,
     seedBookings
   );
+  // Older bookings baked a random-placeholder photo into their spot snapshot;
+  // strip it so the row renders the vehicle graphic instead of a stock image.
+  for (const b of bookings) {
+    if (b.spot && Array.isArray(b.spot.images)) {
+      b.spot.images = b.spot.images.filter(
+        (u) => !String(u).includes("picsum.photos")
+      );
+    }
+  }
   return bookings.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );

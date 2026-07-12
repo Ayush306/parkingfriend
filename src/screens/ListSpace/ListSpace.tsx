@@ -282,7 +282,8 @@ export default function ListSpace() {
       setPrice((prev) => {
         const n = parseInt((prev || "").replace(/[^0-9]/g, ""), 10);
         if (isNaN(n)) return String(recommendedPrice ?? PRICE_STEP);
-        return String(Math.max(PRICE_STEP, n + delta));
+        // Clamp to the same 5-digit ceiling the text field enforces.
+        return String(Math.min(99999, Math.max(PRICE_STEP, n + delta)));
       });
     },
     [recommendedPrice]
