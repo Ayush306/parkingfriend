@@ -60,10 +60,16 @@ export function LiveMapChrome({
     route,
   };
 
+  // Key on VALUE, not identity: screens rebuild the markers array on every
+  // data refresh, and a new identity would reload the iframe (re-downloading
+  // the whole map style) even though nothing visible changed.
+  const markersKey = JSON.stringify(markers);
+  const routeKey = JSON.stringify(route ?? null);
+
   const inlineHtml = useMemo(
     () => buildMapHtml(markers, { ...baseOpts, interactive: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [markers, zoom, route, colors.primary, colors.secondary, isDark]
+    [markersKey, zoom, routeKey, colors.primary, colors.secondary, isDark]
   );
 
   const fullHtml = useMemo(
@@ -74,7 +80,7 @@ export function LiveMapChrome({
         userLocation: userLoc,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [markers, zoom, route, colors.primary, colors.secondary, isDark, userLoc]
+    [markersKey, zoom, routeKey, colors.primary, colors.secondary, isDark, userLoc]
   );
 
   // Directions make sense when the map has one clear destination.

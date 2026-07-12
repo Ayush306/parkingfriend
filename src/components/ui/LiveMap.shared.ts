@@ -1,5 +1,40 @@
 import type { ViewStyle } from "react-native";
 import { MAPBOX_TOKEN } from "@/config/mapConfig";
+import { OLA_MAPS_API_KEY, isOlaMapsEnabled } from "@/config/olaMapsConfig";
+
+/**
+ * Raster tile layer for the Leaflet-based maps (the pin-picker, and the
+ * fallback path when Ola vector tiles are unavailable):
+ *   1. Mapbox (only if a token is configured)  2. CARTO (free, keyless).
+ * NOTE: Ola's *raster* tile endpoint is heavily rate-limited on the free
+ * tier (429s on a single screen of tiles) — never use it here. The Ola
+ * upgrade is the *vector* path in buildOlaVectorHtml below.
+ */
+function pickTiles(dark: boolean | undefined) {
+  const useMapbox = !!MAPBOX_TOKEN && MAPBOX_TOKEN.startsWith("pk.");
+  const cartoUrl = dark
+    ? "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+  if (useMapbox) {
+    const style = dark ? "dark-v11" : "streets-v12";
+    return {
+      url: `https://api.mapbox.com/styles/v1/mapbox/${style}/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`,
+      fallbackUrl: cartoUrl,
+      tileSize: 512,
+      zoomOffset: -1,
+      subdomains: "abc",
+      attribution: "© Mapbox © OpenStreetMap",
+    };
+  }
+  return {
+    url: cartoUrl,
+    fallbackUrl: null as string | null,
+    tileSize: 256,
+    zoomOffset: 0,
+    subdomains: "abcd",
+    attribution: "© OpenStreetMap © CARTO",
+  };
+}
 
 export interface LiveMarker {
   latitude: number;
@@ -57,25 +92,242 @@ export interface BuildMapOptions {
  * real lat/lng coordinates, plus an optional OSRM driving route. The same
  * HTML is used inside a WebView (native) and an <iframe> (web).
  */
+/**
+ * MapLibre GL + Ola Maps vector tiles — India-native detail (local roads,
+ * villages, shops) using the same free key as the place search. If MapLibre
+ * or the Ola style fails to load, the page rebuilds itself with the plain
+ * Leaflet + CARTO map so users never see a blank screen.
+ */
+function buildOlaVectorHtml(
+  markers: LiveMarker[],
+  opts: BuildMapOptions
+): string {
+  const zoom = opts.zoom ?? 15;
+  const interactive = opts.interactive !== false;
+  const styleId = opts.dark ? "default-dark-standard" : "default-light-standard";
+  const styleUrl = `https://api.olamaps.io/tiles/vector/v1/styles/${styleId}/style.json?api_key=${OLA_MAPS_API_KEY}`;
+  const carto = pickTiles(opts.dark);
+  const markersJson = JSON.stringify(markers ?? []);
+  const routeJson = JSON.stringify(opts.route ?? null);
+  const userJson = JSON.stringify(opts.userLocation ?? null);
+  const badgeBg = opts.dark ? "rgba(15,23,42,0.92)" : "rgba(255,255,255,0.95)";
+  const badgeFg = opts.dark ? "#E2E8F0" : "#0F172A";
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<style>
+  html, body, #map { height: 100%; margin: 0; padding: 0; background: ${opts.bg}; }
+  .pm-pin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+  .pm-pin-primary { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.45); }
+  .pm-you { width: 16px; height: 16px; border-radius: 50%; background: #2E7CF6; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(46,124,246,0.25), 0 1px 5px rgba(0,0,0,0.4); }
+  .pm-route-badge { position: absolute; top: 10px; left: 10px; z-index: 30; padding: 6px 12px; border-radius: 999px; background: ${badgeBg}; color: ${badgeFg}; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 1px 6px rgba(0,0,0,0.25); white-space: nowrap; pointer-events: none; }
+  .maplibregl-ctrl-attrib { font-size: 9px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+  var MARKERS = ${markersJson};
+  var ROUTE = ${routeJson};
+  var USER = ${userJson};
+  var INTERACTIVE = ${JSON.stringify(interactive)};
+  var PRIMARY = ${JSON.stringify(opts.primaryColor)};
+  var SECONDARY = ${JSON.stringify(opts.secondaryColor)};
+  var OLA_KEY = ${JSON.stringify(OLA_MAPS_API_KEY)};
+  var ZOOM = ${zoom};
+  var fellBack = false;
+
+  // ── Plan B: plain Leaflet + CARTO if MapLibre/Ola can't load ──
+  function leafletFallback(reason) {
+    if (fellBack) return;
+    fellBack = true;
+    dbg('fallback', reason || 'unknown');
+    try {
+      var mapEl = document.getElementById('map');
+      mapEl.innerHTML = '';
+      var css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(css);
+      var js = document.createElement('script');
+      js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      js.onload = function () {
+        var map = L.map('map', { zoomControl: INTERACTIVE, attributionControl: true, scrollWheelZoom: INTERACTIVE, dragging: INTERACTIVE, touchZoom: INTERACTIVE, doubleClickZoom: INTERACTIVE, boxZoom: INTERACTIVE, keyboard: INTERACTIVE });
+        L.tileLayer(${JSON.stringify(carto.url)}, { tileSize: 256, zoomOffset: 0, subdomains: 'abcd', maxZoom: 19, attribution: ${JSON.stringify(carto.attribution)} }).addTo(map);
+        var pts = [];
+        MARKERS.forEach(function (m) {
+          var cls = m.primary ? 'pm-pin-primary' : 'pm-pin';
+          var size = m.primary ? 16 : 12;
+          var icon = L.divIcon({ className: '', html: '<div class="' + cls + '" style="background:' + (m.primary ? PRIMARY : SECONDARY) + '"></div>', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          var mk = L.marker([m.latitude, m.longitude], { icon: icon }).addTo(map);
+          if (m.title) { mk.bindPopup(m.title); }
+          pts.push([m.latitude, m.longitude]);
+        });
+        if (USER && isFinite(USER.latitude)) {
+          var youIcon = L.divIcon({ className: '', html: '<div class="pm-you"></div>', iconSize: [16, 16], iconAnchor: [8, 8] });
+          L.marker([USER.latitude, USER.longitude], { icon: youIcon }).addTo(map);
+          pts.push([USER.latitude, USER.longitude]);
+        }
+        if (pts.length === 1) { map.setView(pts[0], ZOOM); }
+        else if (pts.length > 1) { map.fitBounds(pts, { padding: [40, 40] }); }
+        else { map.setView([28.4595, 77.0266], 12); }
+      };
+      document.head.appendChild(js);
+    } catch (e) {}
+  }
+
+  window.__dbg = { events: [] };
+  function dbg(tag, detail) {
+    try { window.__dbg.events.push(tag + (detail ? ':' + detail : '') + '@' + Math.round(performance.now())); } catch (e) {}
+  }
+  function boot() {
+    dbg('boot');
+    // Fetch the Ola style ourselves so we can strip broken layers (their
+    // styles reference a "3d_model" source-layer that doesn't exist in the
+    // tileset, which would keep MapLibre in a permanent "loading" state).
+    fetch(${JSON.stringify(styleUrl)})
+      .then(function (res) {
+        dbg('stylefetch', String(res.status));
+        if (!res.ok) { throw new Error('style HTTP ' + res.status); }
+        return res.json();
+      })
+      .then(function (style) {
+        style.layers = (style.layers || []).filter(function (l) {
+          return l['source-layer'] !== '3d_model';
+        });
+        dbg('styleready', String((style.layers || []).length));
+        startMap(style);
+      })
+      .catch(function (e) { leafletFallback('stylefetch:' + String(e).slice(0, 50)); });
+  }
+
+  var attempt = 0;
+  function startMap(styleObj) {
+    attempt += 1;
+    dbg('attempt', String(attempt));
+    try {
+      var old = document.querySelector('.pm-route-badge');
+      if (old) { old.remove(); }
+      var map = new maplibregl.Map({
+        container: 'map',
+        style: styleObj,
+        center: [77.0266, 28.4595],
+        zoom: 12,
+        interactive: INTERACTIVE,
+        attributionControl: { compact: true },
+        transformRequest: function (url) {
+          if (url.indexOf('api.olamaps.io') !== -1 && url.indexOf('api_key=') === -1) {
+            return { url: url + (url.indexOf('?') === -1 ? '?' : '&') + 'api_key=' + OLA_KEY };
+          }
+          // Untouched URLs must return undefined — a wrapper object here
+          // trips MapLibre's worker serialization and stalls tile loading.
+          return undefined;
+        },
+      });
+      window.__map = map;
+      var mapReady = false;
+      map.on('load', function () { mapReady = true; dbg('load'); });
+      map.on('idle', function () { mapReady = true; });
+      map.on('styledata', function () { dbg('styledata', String(map.isStyleLoaded())); });
+      map.on('error', function (e) { dbg('error', (e && e.error && (e.error.status || e.error.message || '')).toString().slice(0, 80)); });
+      if (INTERACTIVE) {
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+      }
+
+      var pts = [];
+      MARKERS.forEach(function (m) {
+        var el = document.createElement('div');
+        el.className = m.primary ? 'pm-pin-primary' : 'pm-pin';
+        el.style.background = m.primary ? PRIMARY : SECONDARY;
+        var mk = new maplibregl.Marker({ element: el }).setLngLat([m.longitude, m.latitude]).addTo(map);
+        if (m.title) { mk.setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setText(m.title)); }
+        pts.push([m.longitude, m.latitude]);
+      });
+      if (USER && isFinite(USER.latitude) && isFinite(USER.longitude)) {
+        var you = document.createElement('div');
+        you.className = 'pm-you';
+        new maplibregl.Marker({ element: you }).setLngLat([USER.longitude, USER.latitude]).addTo(map);
+        pts.push([USER.longitude, USER.latitude]);
+      }
+      function fitAll(extra) {
+        var all = pts.concat(extra || []);
+        if (all.length === 1) { map.jumpTo({ center: all[0], zoom: ZOOM }); }
+        else if (all.length > 1) {
+          var b = new maplibregl.LngLatBounds(all[0], all[0]);
+          all.forEach(function (p) { b.extend(p); });
+          map.fitBounds(b, { padding: 48, maxZoom: 16, duration: 0 });
+        }
+      }
+      fitAll();
+
+      if (ROUTE && ROUTE.from && ROUTE.to && window.fetch) {
+        var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' +
+          ROUTE.from.longitude + ',' + ROUTE.from.latitude + ';' +
+          ROUTE.to.longitude + ',' + ROUTE.to.latitude + '?overview=full&geometries=geojson';
+        fetch(osrmUrl).then(function (res) { return res.json(); }).then(function (data) {
+          if (!data || data.code !== 'Ok' || !data.routes || !data.routes.length) { return; }
+          var r = data.routes[0];
+          var draw = function () {
+            if (map.getSource('pm-route')) return;
+            map.addSource('pm-route', { type: 'geojson', data: { type: 'Feature', geometry: r.geometry } });
+            map.addLayer({ id: 'pm-route', type: 'line', source: 'pm-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': PRIMARY, 'line-width': 5, 'line-opacity': 0.85 } });
+            fitAll(r.geometry.coordinates);
+            var badge = document.createElement('div');
+            badge.className = 'pm-route-badge';
+            badge.textContent = (r.distance / 1000).toFixed(1) + ' km \\u00B7 ' + Math.max(1, Math.round(r.duration / 60)) + ' min';
+            document.body.appendChild(badge);
+          };
+          if (map.isStyleLoaded()) { draw(); } else { map.once('load', draw); }
+        }).catch(function () {});
+      }
+
+      // Some embedded browsers can't run MapLibre's tile workers (observed
+      // in desktop dev-preview iframes; phone WebViews are fine). If the map
+      // isn't ready quickly, swap to the plain Leaflet map without fuss.
+      setTimeout(function () {
+        if (!fellBack && !mapReady) { try { map.remove(); } catch (e) {} leafletFallback('timeout'); }
+      }, 7000);
+    } catch (e) {
+      leafletFallback('construct:' + String(e).slice(0, 50));
+    }
+  }
+
+  // Boot only once the document has fully loaded: creating the map (and its
+  // web workers) mid-parse inside a srcdoc iframe/WebView stalls silently.
+  function bootWhenReady() {
+    if (document.readyState === 'complete') { setTimeout(boot, 300); }
+    else { window.addEventListener('load', function () { setTimeout(boot, 300); }); }
+  }
+  var lib = document.createElement('script');
+  lib.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+  lib.onload = bootWhenReady;
+  lib.onerror = function () { leafletFallback('libload'); };
+  document.head.appendChild(lib);
+</script>
+</body>
+</html>`;
+}
+
 export function buildMapHtml(
   markers: LiveMarker[],
   opts: BuildMapOptions
 ): string {
   const useMapbox = !!MAPBOX_TOKEN && MAPBOX_TOKEN.startsWith("pk.");
-  const style = opts.dark ? "dark-v11" : "streets-v12";
-  // CARTO raster basemaps: free, no key, crisp retina tiles via Leaflet's
-  // native {r} placeholder (resolves to "@2x" on retina displays).
-  const tileUrl = useMapbox
-    ? `https://api.mapbox.com/styles/v1/mapbox/${style}/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
-    : opts.dark
-      ? "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-  const tileSize = useMapbox ? 512 : 256;
-  const zoomOffset = useMapbox ? -1 : 0;
-  const subdomains = useMapbox ? "abc" : "abcd";
-  const attribution = useMapbox
-    ? "© Mapbox © OpenStreetMap"
-    : "© OpenStreetMap © CARTO";
+  // Ola vector tiles (India-native detail) whenever the key exists and no
+  // explicit Mapbox override is configured.
+  if (!useMapbox && isOlaMapsEnabled()) {
+    return buildOlaVectorHtml(markers, opts);
+  }
+  const tiles = pickTiles(opts.dark);
+  const tileUrl = tiles.url;
+  const tileSize = tiles.tileSize;
+  const zoomOffset = tiles.zoomOffset;
+  const subdomains = tiles.subdomains;
+  const attribution = tiles.attribution;
   const zoom = opts.zoom ?? 15;
   const interactive = opts.interactive !== false;
   const markersJson = JSON.stringify(markers ?? []);
@@ -122,7 +374,22 @@ export function buildMapHtml(
       boxZoom: INTERACTIVE,
       keyboard: INTERACTIVE,
     });
-    L.tileLayer(${JSON.stringify(tileUrl)}, { tileSize: ${tileSize}, zoomOffset: ${zoomOffset}, subdomains: ${JSON.stringify(subdomains)}, maxZoom: 19, attribution: ${JSON.stringify(attribution)} }).addTo(map);
+    var tileLayer = L.tileLayer(${JSON.stringify(tileUrl)}, { tileSize: ${tileSize}, zoomOffset: ${zoomOffset}, subdomains: ${JSON.stringify(subdomains)}, maxZoom: 19, attribution: ${JSON.stringify(attribution)} }).addTo(map);
+    // If the primary tile source misbehaves, quietly swap to the keyless
+    // CARTO basemap so the map never goes blank.
+    var FALLBACK_TILES = ${JSON.stringify(tiles.fallbackUrl)};
+    if (FALLBACK_TILES) {
+      var tileErrors = 0;
+      tileLayer.on('tileerror', function () {
+        tileErrors += 1;
+        if (tileErrors === 6) {
+          try {
+            map.removeLayer(tileLayer);
+            L.tileLayer(FALLBACK_TILES, { tileSize: 256, zoomOffset: 0, subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+          } catch (e) {}
+        }
+      });
+    }
     var pts = [];
     MARKERS.forEach(function (m) {
       var color = m.primary ? PRIMARY : SECONDARY;
@@ -205,21 +472,12 @@ export interface BuildPickerOptions extends BuildMapOptions {
  * `parent.postMessage` in an <iframe>) as JSON `{type:'pick',latitude,longitude,label?}`.
  */
 export function buildPickerHtml(opts: BuildPickerOptions): string {
-  const useMapbox = !!MAPBOX_TOKEN && MAPBOX_TOKEN.startsWith("pk.");
-  const styleName = opts.dark ? "dark-v11" : "streets-v12";
-  // CARTO raster basemaps: free, no key, crisp retina tiles via Leaflet's
-  // native {r} placeholder (resolves to "@2x" on retina displays).
-  const tileUrl = useMapbox
-    ? `https://api.mapbox.com/styles/v1/mapbox/${styleName}/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`
-    : opts.dark
-      ? "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-  const tileSize = useMapbox ? 512 : 256;
-  const zoomOffset = useMapbox ? -1 : 0;
-  const subdomains = useMapbox ? "abc" : "abcd";
-  const attribution = useMapbox
-    ? "© Mapbox © OpenStreetMap"
-    : "© OpenStreetMap © CARTO";
+  const tiles = pickTiles(opts.dark);
+  const tileUrl = tiles.url;
+  const tileSize = tiles.tileSize;
+  const zoomOffset = tiles.zoomOffset;
+  const subdomains = tiles.subdomains;
+  const attribution = tiles.attribution;
   const zoom = opts.zoom ?? 16;
   const centerJson = JSON.stringify([opts.center.latitude, opts.center.longitude]);
   const landmarksJson = JSON.stringify(opts.landmarks ?? []);
@@ -257,7 +515,20 @@ export function buildPickerHtml(opts: BuildPickerOptions): string {
   }
   try {
     var map = L.map('map', { zoomControl: true, attributionControl: true, scrollWheelZoom: false });
-    L.tileLayer(${JSON.stringify(tileUrl)}, { tileSize: ${tileSize}, zoomOffset: ${zoomOffset}, subdomains: ${JSON.stringify(subdomains)}, maxZoom: 19, attribution: ${JSON.stringify(attribution)} }).addTo(map);
+    var tileLayer = L.tileLayer(${JSON.stringify(tileUrl)}, { tileSize: ${tileSize}, zoomOffset: ${zoomOffset}, subdomains: ${JSON.stringify(subdomains)}, maxZoom: 19, attribution: ${JSON.stringify(attribution)} }).addTo(map);
+    var FALLBACK_TILES = ${JSON.stringify(tiles.fallbackUrl)};
+    if (FALLBACK_TILES) {
+      var tileErrors = 0;
+      tileLayer.on('tileerror', function () {
+        tileErrors += 1;
+        if (tileErrors === 6) {
+          try {
+            map.removeLayer(tileLayer);
+            L.tileLayer(FALLBACK_TILES, { tileSize: 256, zoomOffset: 0, subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+          } catch (e) {}
+        }
+      });
+    }
     map.setView(CENTER, ${zoom});
 
     var pinIcon = L.divIcon({ className: '', html: '<div class="pm-pin" style="background:' + PRIMARY + '"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
