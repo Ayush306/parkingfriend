@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -47,7 +47,7 @@ const CAPACITY_MAX = 20;
  * (a car spot is worth more than a bike spot).
  */
 const RECOMMENDED_PRICE: Record<VehicleType, number> = {
-  bicycle: 20,
+  bicycle: 10,
   bike: 30,
   car: 50,
   suv: 60,
@@ -87,6 +87,9 @@ export default function ListSpace() {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
   const [capacity, setCapacity] = useState(1);
   const [price, setPrice] = useState("");
+  // Once the host edits the price themselves, vehicle changes stop
+  // overwriting it with the suggested default.
+  const [priceTouched, setPriceTouched] = useState(false);
 
   // --- optional details ---
   const [title, setTitle] = useState("");
@@ -227,6 +230,14 @@ export default function ListSpace() {
     return isNaN(n) ? 0 : n;
   }, [price]);
 
+  // Pre-fill the market price as the default (car ₹50 / bike ₹30 /
+  // bicycle ₹10) whenever the vehicle selection changes — until the host
+  // sets a price of their own.
+  useEffect(() => {
+    if (priceTouched) return;
+    setPrice(recommendedPrice != null ? String(recommendedPrice) : "");
+  }, [recommendedPrice, priceTouched]);
+
   // Green when the price sits around the market rate, yellow when it's a
   // notch below (a deal), red when it's above (drivers may skip it).
   const priceStatus = useMemo<{ tone: PriceTone; message: string }>(() => {
@@ -279,6 +290,7 @@ export default function ListSpace() {
   const changePrice = useCallback(
     (delta: number) => {
       haptics.selection();
+      setPriceTouched(true);
       setPrice((prev) => {
         const n = parseInt((prev || "").replace(/[^0-9]/g, ""), 10);
         if (isNaN(n)) return String(recommendedPrice ?? PRICE_STEP);
@@ -956,10 +968,13 @@ export default function ListSpace() {
             <Ionicons name="remove" size={22} color={colors.primary} />
           </Pressable>
 
-          <View style={{ flex: 1, marginHorizontal: spacing.sm }}>
+          <View style={{ width: 150, marginHorizontal: spacing.sm }}>
             <Input
               value={price}
-              onChangeText={(t) => setPrice(t.replace(/[^0-9]/g, ""))}
+              onChangeText={(t) => {
+                setPriceTouched(true);
+                setPrice(t.replace(/[^0-9]/g, ""));
+              }}
               placeholder="e.g. 100"
               keyboardType="number-pad"
               maxLength={5}
@@ -1181,6 +1196,7 @@ const styles = StyleSheet.create({
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
   },
   priceHint: {
     flexDirection: "row",
