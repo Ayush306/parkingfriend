@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { NoBookings } from "@/components/illustrations/NoBookings";
+import { CancelReasonSheet } from "@/components/ui/CancelReasonSheet";
 import { useToast } from "@/components/ui/Toast";
 
 import { useTheme } from "@/theme/ThemeContext";
@@ -93,6 +94,8 @@ export default function Bookings() {
 
   const [tab, setTab] = useState<TabLabel>("Requested");
   const [refreshing, setRefreshing] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<Booking | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -120,6 +123,31 @@ export default function Bookings() {
       );
     },
     [toast]
+  );
+
+  const openCancel = useCallback((b: Booking) => {
+    haptics.warning();
+    setCancelTarget(b);
+  }, []);
+
+  const doCancel = useCallback(
+    async (reason: string) => {
+      if (!cancelTarget) return;
+      setCancelling(true);
+      try {
+        await bookingService.cancel(cancelTarget.id, reason);
+        setCancelTarget(null);
+        haptics.success();
+        toast.show("Booking cancelled. Your spot has been released.", "success");
+        refetchSilent();
+      } catch (e: any) {
+        haptics.error();
+        toast.show(e?.message ?? "Couldn't cancel this booking.", "error");
+      } finally {
+        setCancelling(false);
+      }
+    },
+    [cancelTarget, toast, refetchSilent]
   );
 
   const renderItem = useCallback(
@@ -193,10 +221,26 @@ export default function Bookings() {
               </Text>
             </View>
           ) : null}
+
+          {/* Cancel anytime while pending or accepted (asks for a reason). */}
+          {item.status === "pending" || item.status === "confirmed" ? (
+            <Pressable
+              onPress={() => openCancel(item)}
+              accessibilityRole="button"
+              accessibilityLabel={item.status === "pending" ? "Cancel request" : "Cancel booking"}
+              hitSlop={6}
+              style={({ pressed }) => [styles.cancelLink, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Ionicons name="close-circle-outline" size={15} color={colors.error} />
+              <Text style={{ marginLeft: 5, color: colors.error, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
+                {item.status === "pending" ? "Cancel request" : "Cancel booking"}
+              </Text>
+            </Pressable>
+          ) : null}
         </Card>
       </MotiView>
     ),
-    [colors, spacing, typography, radius, callHost]
+    [colors, spacing, typography, radius, callHost, openCancel]
   );
 
   return (
@@ -271,6 +315,21 @@ export default function Bookings() {
           }
         />
       )}
+
+      <CancelReasonSheet
+        visible={!!cancelTarget}
+        title={
+          cancelTarget?.status === "pending"
+            ? "Cancel this request?"
+            : "Cancel this booking?"
+        }
+        subtitle="Your spot will be released. Please pick a reason so we can help."
+        confirmLabel="Yes, cancel"
+        keepLabel="Keep it"
+        loading={cancelling}
+        onConfirm={doCancel}
+        onClose={() => !cancelling && setCancelTarget(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -294,5 +353,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 44,
     paddingHorizontal: 12,
+  },
+  cancelLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    marginTop: 12,
+    paddingVertical: 4,
   },
 });

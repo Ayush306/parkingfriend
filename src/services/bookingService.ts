@@ -152,9 +152,9 @@ async function getById(id: string): Promise<Booking | null> {
   return match ? clone(match) : null;
 }
 
-/** Cancels a booking by id and returns the updated booking. */
-async function cancel(id: string): Promise<Booking> {
-  if (isApiEnabled()) return apiBookings.cancel(id);
+/** Cancels a booking by id (with the driver's reason) and returns it. */
+async function cancel(id: string, reason?: string): Promise<Booking> {
+  if (isApiEnabled()) return apiBookings.cancel(id, reason);
   await delay(randomLatency());
   const all = await readPersisted<Booking[]>(
     STORAGE_KEYS.bookings,
@@ -164,8 +164,31 @@ async function cancel(id: string): Promise<Booking> {
   if (idx === -1) {
     throw new Error("Booking not found.");
   }
-  all[idx] = { ...all[idx], status: "cancelled", contactUnlocked: false };
+  all[idx] = {
+    ...all[idx],
+    status: "cancelled",
+    contactUnlocked: false,
+    hostPhone: null,
+    cancelReason: reason || undefined,
+  };
   await writePersisted(STORAGE_KEYS.bookings, all);
+
+  // Retire the linked pending host request so the host never sees a request
+  // the driver already withdrew (demo parity with the server cascade).
+  try {
+    const requests = await readPersisted<HostRequest[]>(STORAGE_KEYS.requests, []);
+    let changed = false;
+    for (let i = 0; i < requests.length; i++) {
+      if (requests[i].bookingId === id && requests[i].status === "pending") {
+        requests[i] = { ...requests[i], status: "declined" };
+        changed = true;
+      }
+    }
+    if (changed) await writePersisted(STORAGE_KEYS.requests, requests);
+  } catch {
+    // Best-effort in demo mode.
+  }
+
   return clone(all[idx]);
 }
 

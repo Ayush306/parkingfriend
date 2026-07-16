@@ -23,12 +23,13 @@ import { MapPicker } from "@/components/ui/MapPicker";
 import type { PickerLandmark } from "@/components/ui/LiveMap.shared";
 import { SuccessCheck } from "@/components/illustrations/SuccessCheck";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
+import { CalendarModal } from "@/components/ui/CalendarModal";
 import { useTheme } from "@/theme/ThemeContext";
 import { useToast } from "@/components/ui/Toast";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounce } from "@/hooks/useDebounce";
 import { haptics } from "@/utils/haptics";
-import { formatCurrency } from "@/utils/format";
+import { formatCurrency, formatDate } from "@/utils/format";
 import { hostService, type CreateListingPayload } from "@/services/hostService";
 import { placesService, type Place } from "@/services/placesService";
 import { SPOT_TYPE_OPTIONS, VEHICLE_OPTIONS, type SpotTypeId } from "@/constants";
@@ -93,6 +94,13 @@ export default function ListSpace() {
   // Once the host edits the price themselves, vehicle changes stop
   // overwriting it with the suggested default.
   const [priceTouched, setPriceTouched] = useState(false);
+
+  // --- availability window ---
+  // Default: always available (drivers can park any day, no dates asked).
+  const [availableAlways, setAvailableAlways] = useState(true);
+  const [startDate, setStartDate] = useState<string | null>(null);
+  const [endDate, setEndDate] = useState<string | null>(null);
+  const [calendarFor, setCalendarFor] = useState<null | "start" | "end">(null);
 
   // --- optional details ---
   const [title, setTitle] = useState("");
@@ -345,6 +353,20 @@ export default function ListSpace() {
     setPrice(String(recommendedPrice));
   }, [recommendedPrice]);
 
+  // A day was picked in the calendar for either the start or end field.
+  const onPickDate = useCallback(
+    (date: string) => {
+      if (calendarFor === "start") {
+        setStartDate(date);
+        // If the end date is now before the new start, clear it.
+        setEndDate((prev) => (prev && prev < date ? null : prev));
+      } else if (calendarFor === "end") {
+        setEndDate(date);
+      }
+    },
+    [calendarFor]
+  );
+
   const handlePublish = async () => {
     if (!picked) {
       haptics.error();
@@ -360,6 +382,11 @@ export default function ListSpace() {
     if (isNaN(priceNum) || priceNum <= 0) {
       haptics.error();
       toast.show("Enter your price per day — at least ₹1.", "error");
+      return;
+    }
+    if (!availableAlways && (!startDate || !endDate)) {
+      haptics.error();
+      toast.show("Pick your available dates, or choose Always available.", "error");
       return;
     }
     setSubmitting(true);
@@ -392,6 +419,9 @@ export default function ListSpace() {
         amenities: [],
         availableFrom: "08:00",
         availableTo: "20:00",
+        availableAlways,
+        availableStartDate: availableAlways ? null : startDate,
+        availableEndDate: availableAlways ? null : endDate,
         instructions: "",
         images: [],
       };
@@ -1132,6 +1162,155 @@ export default function ListSpace() {
         </View>
       </Card>
 
+      {/* When is it available? */}
+      <Card elevated style={{ marginBottom: spacing.lg }}>
+        <Text
+          style={{
+            color: colors.text,
+            fontFamily: typography.fonts.heading,
+            fontSize: typography.sizes.md,
+            marginBottom: spacing.xs,
+          }}
+        >
+          When can people park here?
+        </Text>
+        <Text
+          style={{
+            color: colors.textSecondary,
+            fontFamily: typography.fonts.body,
+            fontSize: typography.sizes.sm,
+            marginBottom: spacing.md,
+          }}
+        >
+          Keep it open every day, or set the dates you're free to host.
+        </Text>
+
+        {/* Always vs. date-range */}
+        <View style={styles.availOptionRow}>
+          {[
+            { id: true, label: "Always available", icon: "infinite" as const },
+            { id: false, label: "Only some dates", icon: "calendar" as const },
+          ].map((opt) => {
+            const active = availableAlways === opt.id;
+            return (
+              <Pressable
+                key={String(opt.id)}
+                onPress={() => {
+                  haptics.selection();
+                  setAvailableAlways(opt.id);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={opt.label}
+                style={({ pressed }) => [
+                  styles.availOption,
+                  {
+                    backgroundColor: active ? colors.primaryLight : colors.surfaceAlt,
+                    borderColor: active ? colors.primary : colors.border,
+                    borderRadius: radius.md,
+                    opacity: pressed ? 0.9 : 1,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={opt.icon}
+                  size={17}
+                  color={active ? colors.primary : colors.textSecondary}
+                />
+                <Text
+                  style={{
+                    marginTop: 5,
+                    color: active ? colors.primary : colors.textSecondary,
+                    fontFamily: typography.fonts.bodySemi,
+                    fontSize: typography.sizes.sm,
+                    textAlign: "center",
+                  }}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* From / To date fields (only for a dated listing) */}
+        {!availableAlways ? (
+          <View style={{ marginTop: spacing.md }}>
+            <View style={styles.dateRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={fieldLabel}>From</Text>
+                <Pressable
+                  onPress={() => {
+                    haptics.selection();
+                    setCalendarFor("start");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pick a start date"
+                  style={({ pressed }) => [
+                    styles.dateField,
+                    { borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  <Text
+                    style={{
+                      marginLeft: 8,
+                      color: startDate ? colors.text : colors.textMuted,
+                      fontFamily: typography.fonts.bodyMedium,
+                      fontSize: typography.sizes.sm,
+                    }}
+                  >
+                    {startDate ? formatDate(startDate, { withYear: false }) : "Start date"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={{ width: spacing.md }} />
+
+              <View style={{ flex: 1 }}>
+                <Text style={fieldLabel}>To</Text>
+                <Pressable
+                  onPress={() => {
+                    haptics.selection();
+                    setCalendarFor("end");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pick an end date"
+                  style={({ pressed }) => [
+                    styles.dateField,
+                    { borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                  <Text
+                    style={{
+                      marginLeft: 8,
+                      color: endDate ? colors.text : colors.textMuted,
+                      fontFamily: typography.fonts.bodyMedium,
+                      fontSize: typography.sizes.sm,
+                    }}
+                  >
+                    {endDate ? formatDate(endDate, { withYear: false }) : "End date"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+            {startDate && endDate ? (
+              <Text
+                style={{
+                  marginTop: spacing.sm,
+                  color: colors.textSecondary,
+                  fontFamily: typography.fonts.body,
+                  fontSize: typography.sizes.xs,
+                }}
+              >
+                Open {formatDate(startDate)} – {formatDate(endDate)}.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </Card>
+
       {/* Optional details */}
       <Card elevated style={{ marginBottom: spacing.lg }}>
         <View style={styles.sectionHead}>
@@ -1196,6 +1375,15 @@ export default function ListSpace() {
         Location, what fits, how many and price per day are required. You can
         add photos, timings and more after publishing.
       </Text>
+
+      <CalendarModal
+        visible={calendarFor !== null}
+        title={calendarFor === "end" ? "Available until" : "Available from"}
+        value={calendarFor === "end" ? endDate : startDate}
+        minDate={calendarFor === "end" ? startDate ?? undefined : undefined}
+        onSelect={onPickDate}
+        onClose={() => setCalendarFor(null)}
+      />
     </Screen>
   );
 }
@@ -1268,6 +1456,29 @@ const styles = StyleSheet.create({
   priceHint: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  availOptionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  availOption: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderWidth: 1.5,
+  },
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  dateField: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 48,
+    paddingHorizontal: 12,
+    borderWidth: 1,
   },
   useSuggested: {
     marginLeft: 8,

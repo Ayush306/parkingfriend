@@ -92,6 +92,9 @@ function normalizeSpot(raw: any): ParkingSpot {
     instructions: raw?.instructions ?? "",
     isFavorite: false, // decorated from local favorites below
     available: raw?.available === undefined ? true : !!raw.available,
+    availableAlways: raw?.availableAlways === undefined ? true : !!raw.availableAlways,
+    availableStartDate: raw?.availableStartDate ?? null,
+    availableEndDate: raw?.availableEndDate ?? null,
   };
 }
 
@@ -120,6 +123,7 @@ function normalizeBooking(raw: any): Booking {
         : status === "confirmed" || status === "active",
     otp: raw?.otp ?? undefined,
     hostPhone: raw?.hostPhone ?? null,
+    cancelReason: raw?.cancelReason ?? undefined,
   };
 }
 
@@ -331,10 +335,10 @@ export const apiBookings = {
     return all.find((b) => b.id === id) ?? null;
   },
 
-  async cancel(id: string): Promise<Booking> {
+  async cancel(id: string, reason?: string): Promise<Booking> {
     const raw = await http.request<any>(
       `/api/bookings/${encodeURIComponent(id)}/cancel`,
-      { method: "POST", body: {} }
+      { method: "POST", body: reason ? { reason } : {} }
     );
     return normalizeBooking(raw);
   },
@@ -354,6 +358,15 @@ export const apiHost = {
       body: payload,
     });
     return normalizeSpot(raw);
+  },
+
+  /** Host removes a listing — cascade-cancels its bookings/requests server-side. */
+  async deleteListing(id: string): Promise<{ ok: boolean; cancelledBookings: number }> {
+    const res = await http.request<{ ok?: boolean; cancelledBookings?: number }>(
+      `/api/host/listings/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
+    return { ok: !!res?.ok, cancelledBookings: Number(res?.cancelledBookings ?? 0) || 0 };
   },
 
   async getRequests(): Promise<HostRequest[]> {

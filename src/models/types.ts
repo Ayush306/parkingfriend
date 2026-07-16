@@ -56,6 +56,12 @@ export interface ParkingSpot {
   instructions: string;
   isFavorite: boolean;
   available: boolean;
+  /** True when the space is open every day (no fixed calendar window). */
+  availableAlways: boolean;
+  /** First day the space is open (YYYY-MM-DD) — only when availableAlways is false. */
+  availableStartDate?: string | null;
+  /** Last day the space is open (YYYY-MM-DD) — only when availableAlways is false. */
+  availableEndDate?: string | null;
 }
 
 export interface Booking {
@@ -78,6 +84,8 @@ export interface Booking {
   otp?: string;
   /** Host's phone number — revealed ONLY after the host accepts the request. */
   hostPhone?: string | null;
+  /** Why the driver cancelled (a picked preset or free text), when cancelled. */
+  cancelReason?: string;
 }
 
 export interface Transaction {

@@ -40,6 +40,12 @@ export interface CreateListingPayload {
   availableTo: string;
   instructions?: string;
   images?: string[];
+  /** True = open every day (no calendar window). Default true. */
+  availableAlways?: boolean;
+  /** Window start (YYYY-MM-DD) — required when availableAlways is false. */
+  availableStartDate?: string | null;
+  /** Window end (YYYY-MM-DD) — required when availableAlways is false. */
+  availableEndDate?: string | null;
 }
 
 /** Reads the host's listings from storage, seeded from JSON. */
@@ -56,6 +62,10 @@ async function readListings(): Promise<ParkingSpot[]> {
     ),
     images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
     views: Math.max(0, Number(s.views) || 0),
+    // Legacy listings had no availability window — treat them as always open.
+    availableAlways: s.availableAlways ?? true,
+    availableStartDate: s.availableStartDate ?? null,
+    availableEndDate: s.availableEndDate ?? null,
   }));
 }
 
@@ -120,6 +130,9 @@ async function createListing(payload: CreateListingPayload): Promise<ParkingSpot
     instructions: payload.instructions?.trim() ?? "",
     isFavorite: false,
     available: true,
+    availableAlways: payload.availableAlways ?? true,
+    availableStartDate: payload.availableStartDate ?? null,
+    availableEndDate: payload.availableEndDate ?? null,
   };
 
   const existing = await readListings();
@@ -208,9 +221,69 @@ async function respond(id: string, accept: boolean): Promise<HostRequest> {
   return clone(all[idx]);
 }
 
+/**
+ * Host removes a listing. On the API this cascade-cancels every live booking
+ * and declines every pending request on the spot server-side; in demo mode we
+ * mirror that locally. Returns how many bookings were cancelled.
+ */
+async function deleteListing(id: string): Promise<{ cancelledBookings: number }> {
+  if (isApiEnabled()) {
+    const res = await apiHost.deleteListing(id);
+    return { cancelledBookings: res.cancelledBookings };
+  }
+  await delay(randomLatency());
+
+  const listings = await readListings();
+  const removed = listings.find((s) => s.id === id);
+  const next = listings.filter((s) => s.id !== id);
+  await writePersisted(STORAGE_KEYS.listings, next);
+
+  let cancelledBookings = 0;
+  // Cancel every live booking on this spot (drivers see it as cancelled).
+  try {
+    const bookings = await readPersisted<Booking[]>(STORAGE_KEYS.bookings, []);
+    const liveBookingIds = new Set<string>();
+    let changed = false;
+    for (let i = 0; i < bookings.length; i++) {
+      const b = bookings[i];
+      if (
+        b.spotId === id &&
+        (b.status === "pending" || b.status === "confirmed" || b.status === "active")
+      ) {
+        liveBookingIds.add(b.id);
+        bookings[i] = { ...b, status: "cancelled", contactUnlocked: false, hostPhone: null };
+        changed = true;
+        cancelledBookings++;
+      }
+    }
+    if (changed) await writePersisted(STORAGE_KEYS.bookings, bookings);
+
+    // Decline the spot's pending incoming requests (matched by linked booking
+    // or, for older rows without a bookingId, by the spot's title).
+    const requests = await readPersisted<HostRequest[]>(STORAGE_KEYS.requests, []);
+    let reqChanged = false;
+    for (let i = 0; i < requests.length; i++) {
+      const r = requests[i];
+      const matches =
+        (r.bookingId && liveBookingIds.has(r.bookingId)) ||
+        (removed && r.spotTitle === removed.title);
+      if (matches && r.status === "pending") {
+        requests[i] = { ...r, status: "declined" };
+        reqChanged = true;
+      }
+    }
+    if (reqChanged) await writePersisted(STORAGE_KEYS.requests, requests);
+  } catch {
+    // Best-effort in demo mode; the listing is already removed above.
+  }
+
+  return { cancelledBookings };
+}
+
 export const hostService = {
   getListings,
   createListing,
+  deleteListing,
   getRequests,
   respond,
 };

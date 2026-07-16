@@ -25,6 +25,7 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 const SPOT_TYPES = ["home", "driveway", "garage", "openlot", "basement"];
 const VEHICLE_TYPES = ["car", "bike", "bicycle", "suv"]; // suv kept for legacy rows
 const MAX_CAPACITY = 50;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
@@ -76,6 +77,24 @@ router.post("/listings", ah(async (req, res) => {
     return res.status(400).json({ error: "A pinned location (latitude/longitude) is required" });
   }
 
+  // Availability: "always available" (default) needs no dates; a dated listing
+  // needs a valid from→to range (YYYY-MM-DD, end on/after start).
+  const availableAlways = p.availableAlways === undefined ? true : !!p.availableAlways;
+  let availableStartDate = null;
+  let availableEndDate = null;
+  if (!availableAlways) {
+    const start = isNonEmptyString(p.availableStartDate) ? p.availableStartDate.trim() : "";
+    const end = isNonEmptyString(p.availableEndDate) ? p.availableEndDate.trim() : "";
+    if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
+      return res.status(400).json({ error: "Pick a start and end date, or choose Always available" });
+    }
+    if (end < start) {
+      return res.status(400).json({ error: "The end date must be on or after the start date" });
+    }
+    availableStartDate = start;
+    availableEndDate = end;
+  }
+
   const id = db.genId("spot");
   const row = {
     id,
@@ -109,11 +128,28 @@ router.post("/listings", ah(async (req, res) => {
     instructions: typeof p.instructions === "string" ? p.instructions.trim() : "",
     isFavorite: false,
     available: true,
+    availableAlways,
+    availableStartDate,
+    availableEndDate,
     createdAt: new Date().toISOString(),
   };
 
   await db.insertSpot(row);
   res.status(201).json(await db.toSpot(row));
+}));
+
+/**
+ * DELETE /api/host/listings/:id — the host removes their listing.
+ * Cascade-cancels every live booking and declines every pending request on the
+ * spot, then deletes it. No reason is asked of the host.
+ */
+router.delete("/listings/:id", ah(async (req, res) => {
+  const spot = await db.getSpotRow(req.params.id);
+  if (!spot || spot.removed || spot.hostId !== req.user.id) {
+    return res.status(404).json({ error: "Listing not found" });
+  }
+  const result = await db.removeListingWithCascade(spot.id);
+  res.json({ ok: true, ...result });
 }));
 
 router.get("/requests", ah(async (req, res) => {

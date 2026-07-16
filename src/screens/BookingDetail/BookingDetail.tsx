@@ -20,7 +20,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Divider } from "@/components/ui/Divider";
 import { MapPreview } from "@/components/ui/MapPreview";
 import { LiveMap } from "@/components/ui/LiveMap";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { CancelReasonSheet } from "@/components/ui/CancelReasonSheet";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
@@ -147,12 +147,12 @@ export default function BookingDetail() {
     );
   };
 
-  const doCancel = async () => {
+  const doCancel = async (reason: string) => {
     if (!booking) return;
-    setConfirmVisible(false);
     setCancelling(true);
     try {
-      const updated = await bookingService.cancel(booking.id);
+      const updated = await bookingService.cancel(booking.id, reason);
+      setConfirmVisible(false);
       setData(updated);
       haptics.success();
       toast.show("Booking cancelled. Your spot has been released.", "success");
@@ -455,15 +455,15 @@ export default function BookingDetail() {
 
       <View style={{ height: spacing.xl }} />
 
-      <ConfirmDialog
+      <CancelReasonSheet
         visible={confirmVisible}
         title="Cancel this booking?"
-        message="Your parking spot will be released. This can't be undone."
+        subtitle="Your parking spot will be released. Please pick a reason so we can help."
         confirmLabel="Yes, cancel"
-        cancelLabel="Keep booking"
-        tone="danger"
+        keepLabel="Keep booking"
+        loading={cancelling}
         onConfirm={doCancel}
-        onCancel={() => setConfirmVisible(false)}
+        onClose={() => !cancelling && setConfirmVisible(false)}
       />
     </Screen>
   );

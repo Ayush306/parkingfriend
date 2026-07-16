@@ -24,7 +24,10 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 
 router.get("/", ah(async (req, res) => {
   const { query, vehicleType, freeOnly, maxPrice, sort } = req.query;
-  let spots = await Promise.all((await db.listSpots()).map(db.toSpot));
+  // Soft-removed listings never surface publicly.
+  let spots = await Promise.all(
+    (await db.listSpots()).filter((r) => !r.removed).map(db.toSpot)
+  );
 
   const q = typeof query === "string" ? query.trim().toLowerCase() : "";
   if (q) {
@@ -69,7 +72,9 @@ router.get("/", ah(async (req, res) => {
 }));
 
 router.get("/popular", ah(async (req, res) => {
-  const spots = (await Promise.all((await db.listSpots()).map(db.toSpot)))
+  const spots = (await Promise.all(
+    (await db.listSpots()).filter((r) => !r.removed).map(db.toSpot)
+  ))
     .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount)
     .slice(0, 6);
   res.json(spots);
@@ -77,7 +82,7 @@ router.get("/popular", ah(async (req, res) => {
 
 router.get("/:id", ah(async (req, res) => {
   const row = await db.getSpotRow(req.params.id);
-  if (!row) {
+  if (!row || row.removed) {
     return res.status(404).json({ error: "Parking spot not found" });
   }
   res.json(await db.toSpot(row));
@@ -90,7 +95,7 @@ router.get("/:id", ah(async (req, res) => {
  */
 router.post("/:id/view", ah(async (req, res) => {
   const row = await db.getSpotRow(req.params.id);
-  if (!row) {
+  if (!row || row.removed) {
     return res.status(404).json({ error: "Parking spot not found" });
   }
   const views = await db.incrementSpotViews(row.id);

@@ -24,6 +24,7 @@ import { formatCurrency, formatDate } from "@/utils/format";
 
 import { Avatar } from "@/components/ui/Avatar";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import type { HostRequest, ParkingSpot, WalletSummary } from "@/models/types";
 
@@ -34,6 +35,8 @@ export default function Post() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<ParkingSpot | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const earnings = useAsync<WalletSummary>(() => walletService.getSummary(), []);
   const listings = useAsync<ParkingSpot[]>(() => hostService.getListings(), []);
@@ -64,6 +67,29 @@ export default function Post() {
     (id: string) => navigation.navigate("SpotDetail", { id }),
     [navigation]
   );
+
+  const removeListing = async () => {
+    if (!removeTarget || removing) return;
+    setRemoving(true);
+    try {
+      const { cancelledBookings } = await hostService.deleteListing(removeTarget.id);
+      setRemoveTarget(null);
+      haptics.success();
+      toast.show(
+        cancelledBookings > 0
+          ? `Listing removed. ${cancelledBookings} booking${cancelledBookings === 1 ? "" : "s"} cancelled.`
+          : "Listing removed.",
+        "success"
+      );
+      listings.refetch();
+      requests.refetch();
+    } catch (e: any) {
+      haptics.error();
+      toast.show(e?.message ?? "Couldn't remove this listing.", "error");
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   const respondToRequest = async (id: string, accept: boolean) => {
     setRespondingId(id);
@@ -323,6 +349,22 @@ export default function Post() {
                 ) : (
                   <SpotGraphic vehicleTypes={sp.vehicleTypes} iconSize={30} style={styles.spaceThumb} />
                 )}
+                {/* Remove this listing (host-only, no reason asked) */}
+                <Pressable
+                  onPress={() => {
+                    haptics.warning();
+                    setRemoveTarget(sp);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${sp.title}`}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.removeBtn,
+                    { backgroundColor: colors.overlay, opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Ionicons name="trash-outline" size={15} color={colors.white} />
+                </Pressable>
                 <View style={{ padding: spacing.sm }}>
                   <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
                     {sp.title}
@@ -363,6 +405,19 @@ export default function Post() {
           </ScrollView>
         )}
       </ScrollView>
+
+      <ConfirmDialog
+        visible={!!removeTarget}
+        title="Remove this listing?"
+        message={
+          "It will disappear from the map and any current bookings on it will be cancelled. This can't be undone."
+        }
+        confirmLabel={removing ? "Removing…" : "Remove listing"}
+        cancelLabel="Keep it"
+        tone="danger"
+        onConfirm={removeListing}
+        onCancel={() => !removing && setRemoveTarget(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -451,6 +506,17 @@ const styles = StyleSheet.create({
   spaceThumb: {
     width: "100%",
     height: 96,
+  },
+  removeBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
   spaceStatus: {
     flexDirection: "row",

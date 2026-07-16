@@ -102,6 +102,12 @@ router.post("/", ah(async (req, res) => {
     return res.status(403).json({ error: "This is your own listing — you can't request your own parking space." });
   }
 
+  // Availability guard: a listing that's switched off or outside its
+  // from→to date window takes no new requests.
+  if (!db.isSpotAvailableNow(spotRow)) {
+    return res.status(409).json({ error: "This parking isn't available right now — try another spot nearby." });
+  }
+
   // Capacity guard: no new requests once every slot is taken by an accepted
   // booking. (Pending requests don't hold slots — the host chooses.)
   const capacity = Math.max(1, Number(spotRow.capacity) || 1);
@@ -177,10 +183,13 @@ router.post("/:id/cancel", ah(async (req, res) => {
   if (booking.status === "completed") {
     return res.status(409).json({ error: "A completed booking cannot be cancelled" });
   }
-  // body.reason is accepted (and currently just acknowledged) — no column for it yet.
-  // Cancelling also retires the linked pending host request, so the host's
-  // "Incoming requests" never shows a request the driver already withdrew.
-  const updated = await db.cancelBookingWithRequest(booking);
+  // The driver's stated reason is stored on the booking. Cancelling also
+  // retires the linked pending host request, so the host's "Incoming requests"
+  // never shows a request the driver already withdrew.
+  const reason = isNonEmptyString((req.body || {}).reason)
+    ? req.body.reason.trim().slice(0, 300)
+    : null;
+  const updated = await db.cancelBookingWithRequest(booking, reason);
   res.json(await db.toBooking(updated));
 }));
 

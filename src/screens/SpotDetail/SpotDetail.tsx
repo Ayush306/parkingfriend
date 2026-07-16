@@ -23,7 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 import { haptics } from "@/utils/haptics";
 import { spotService } from "@/services/spotService";
 import { bookingService } from "@/services/bookingService";
-import { formatDistance, formatTime } from "@/utils/format";
+import { formatDistance, formatTime, formatDate } from "@/utils/format";
 import { openDirections } from "@/utils/directions";
 import { useToast } from "@/components/ui/Toast";
 import type { ParkingSpot, Review } from "@/models/types";
@@ -207,6 +207,35 @@ export default function SpotDetail() {
   const capacity = spot.capacity ?? 1;
   const remaining = spot.remainingCount ?? capacity;
 
+  // Availability window (server already folds the dates into spot.available;
+  // here we build the human labels and, when closed, say why).
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const nowD = new Date();
+  const todayYmd = `${nowD.getFullYear()}-${pad2(nowD.getMonth() + 1)}-${pad2(nowD.getDate())}`;
+  const windowText =
+    spot.availableAlways || !spot.availableStartDate || !spot.availableEndDate
+      ? "Every day"
+      : `${formatDate(spot.availableStartDate)} – ${formatDate(spot.availableEndDate)}`;
+  let closedReason: string | null = null;
+  if (!spot.available) {
+    if (
+      !spot.availableAlways &&
+      spot.availableStartDate &&
+      todayYmd < spot.availableStartDate
+    ) {
+      closedReason = `Opens ${formatDate(spot.availableStartDate)}`;
+    } else if (
+      !spot.availableAlways &&
+      spot.availableEndDate &&
+      todayYmd > spot.availableEndDate
+    ) {
+      closedReason = "This listing period has ended";
+    } else {
+      closedReason = "Not available right now";
+    }
+  }
+  const canRequest = spot.available && remaining > 0;
+
   return (
     <View style={[styles.flex, { backgroundColor: colors.bg }]}>
       <ScrollView
@@ -280,7 +309,11 @@ export default function SpotDetail() {
                     <Badge label="Your listing" tone="warning" size="sm" />
                   </View>
                 ) : null}
-                {!spot.available ? (
+                {closedReason ? (
+                  <View style={{ marginLeft: 6 }}>
+                    <Badge label="Unavailable" tone="error" size="sm" />
+                  </View>
+                ) : remaining <= 0 ? (
                   <View style={{ marginLeft: 6 }}>
                     <Badge label="Full today" tone="error" size="sm" />
                   </View>
@@ -493,6 +526,46 @@ export default function SpotDetail() {
                       ? `${remaining} of ${capacity} ${capacity === 1 ? "spot" : "spots"} available`
                       : "Currently full"}
                   </Text>
+                </View>
+              </View>
+
+              {/* Availability window (dates the host opened the space for) */}
+              <View style={[styles.availRow, { marginTop: spacing.md }]}>
+                <View style={[styles.availIcon, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
+                  <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                </View>
+                <View style={styles.flex}>
+                  <Text
+                    style={{
+                      color: colors.textSecondary,
+                      fontFamily: typography.fonts.body,
+                      fontSize: typography.sizes.xs,
+                    }}
+                  >
+                    Available dates
+                  </Text>
+                  <Text
+                    style={{
+                      marginTop: 2,
+                      color: colors.text,
+                      fontFamily: typography.fonts.bodySemi,
+                      fontSize: typography.sizes.md,
+                    }}
+                  >
+                    {windowText}
+                  </Text>
+                  {closedReason ? (
+                    <Text
+                      style={{
+                        marginTop: 2,
+                        color: colors.error,
+                        fontFamily: typography.fonts.bodyMedium,
+                        fontSize: typography.sizes.xs,
+                      }}
+                    >
+                      {closedReason}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             </Card>
@@ -722,8 +795,9 @@ export default function SpotDetail() {
                 label={
                   requested
                     ? "Requested ✓"
-                    : !spot.available ||
-                      (spot.remainingCount ?? spot.capacity ?? 1) <= 0
+                    : closedReason
+                    ? "Unavailable"
+                    : remaining <= 0
                     ? "Currently full"
                     : "Request to park"
                 }
@@ -731,11 +805,7 @@ export default function SpotDetail() {
                 size="lg"
                 fullWidth
                 loading={requesting}
-                disabled={
-                  !spot.available ||
-                  requested ||
-                  (spot.remainingCount ?? spot.capacity ?? 1) <= 0
-                }
+                disabled={!canRequest || requested}
                 iconRight={
                   requested ? undefined : (
                     <Ionicons name="paper-plane" size={17} color={colors.white} />

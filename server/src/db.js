@@ -58,12 +58,13 @@ const COLUMNS = {
     "landmark", "nearStation", "distanceMeters", "latitude", "longitude",
     "pricePerHour", "pricePerDay", "isFree", "rating", "reviewsCount",
     "images", "amenities", "availableFrom", "availableTo", "instructions",
-    "isFavorite", "available", "views", "createdAt",
+    "isFavorite", "available", "removed", "views",
+    "availableAlways", "availableStartDate", "availableEndDate", "createdAt",
   ],
   bookings: [
     "id", "userId", "spotId", "date", "time", "startTime", "endTime",
     "durationHours", "vehicleType", "vehicleNumber", "status", "totalAmount",
-    "contactUnlocked", "otp", "createdAt",
+    "contactUnlocked", "otp", "cancelReason", "createdAt",
   ],
   host_requests: [
     "id", "hostId", "spotId", "bookingId", "spotTitle", "requesterName",
@@ -77,7 +78,7 @@ const COLUMNS = {
 const JSON_COLUMNS = { spots: ["vehicleTypes", "images", "amenities"] };
 const BOOL_COLUMNS = {
   users: ["verified"],
-  spots: ["isFree", "isFavorite", "available"],
+  spots: ["isFree", "isFavorite", "available", "removed", "availableAlways"],
   bookings: ["contactUnlocked"],
 };
 
@@ -121,7 +122,11 @@ const DDL = [
     instructions TEXT,
     isFavorite INTEGER DEFAULT 0,
     available INTEGER DEFAULT 1,
+    removed INTEGER DEFAULT 0,
     views INTEGER DEFAULT 0,
+    availableAlways INTEGER DEFAULT 1,
+    availableStartDate TEXT,
+    availableEndDate TEXT,
     createdAt TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS bookings (
@@ -139,6 +144,7 @@ const DDL = [
     totalAmount REAL DEFAULT 0,
     contactUnlocked INTEGER DEFAULT 0,
     otp TEXT,
+    cancelReason TEXT,
     createdAt TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS host_requests (
@@ -179,6 +185,16 @@ const MIGRATIONS = [
   { table: "spots", column: "capacity", ddl: "ALTER TABLE spots ADD COLUMN capacity INTEGER DEFAULT 1" },
   { table: "spots", column: "views", ddl: "ALTER TABLE spots ADD COLUMN views INTEGER DEFAULT 0" },
   { table: "users", column: "email", ddl: "ALTER TABLE users ADD COLUMN email TEXT" },
+  // Availability window: a listing is either "always available" (default) or
+  // open only within a from→to date range the host picked.
+  { table: "spots", column: "availableAlways", ddl: "ALTER TABLE spots ADD COLUMN availableAlways INTEGER DEFAULT 1" },
+  { table: "spots", column: "availableStartDate", ddl: "ALTER TABLE spots ADD COLUMN availableStartDate TEXT" },
+  { table: "spots", column: "availableEndDate", ddl: "ALTER TABLE spots ADD COLUMN availableEndDate TEXT" },
+  // Soft-removed listings (host cancelled them) stay in the DB so linked
+  // bookings keep their spot details, but disappear from every public/host view.
+  { table: "spots", column: "removed", ddl: "ALTER TABLE spots ADD COLUMN removed INTEGER DEFAULT 0" },
+  // Why a driver cancelled (free text or a picked preset) — kept for the host/records.
+  { table: "bookings", column: "cancelReason", ddl: "ALTER TABLE bookings ADD COLUMN cancelReason TEXT" },
 ];
 
 let initPromise = null;
@@ -370,12 +386,38 @@ async function countActiveBookings(spotId) {
   return Number(rs.rows[0].n) || 0;
 }
 
+/**
+ * Whether a spot is open for new bookings right now, considering BOTH the
+ * host's on/off flag and the availability window:
+ *   - always-available listings (default) are open whenever `available` is on;
+ *   - date-ranged listings are open only from availableStartDate to
+ *     availableEndDate (inclusive), in the server's local date.
+ * Legacy rows (availableAlways null) are treated as always-available.
+ */
+function isSpotAvailableNow(row) {
+  if (!row) return false;
+  if (!row.available) return false;
+  const always =
+    row.availableAlways === undefined || row.availableAlways === null
+      ? true
+      : !!row.availableAlways;
+  if (always) return true;
+  const today = todayLocal();
+  if (row.availableStartDate && today < row.availableStartDate) return false;
+  if (row.availableEndDate && today > row.availableEndDate) return false;
+  return true;
+}
+
 /** spots row -> ParkingSpot (types.ts) with host embedded. ASYNC (host lookup). */
 async function toSpot(row) {
   if (!row) return null;
   const host = toHost(await getRow("users", row.hostId));
   const capacity = Math.max(1, Number(row.capacity) || 1);
   const remainingCount = Math.max(0, capacity - (await countActiveBookings(row.id)));
+  const availableAlways =
+    row.availableAlways === undefined || row.availableAlways === null
+      ? true
+      : !!row.availableAlways;
   return {
     id: row.id,
     title: row.title,
@@ -408,8 +450,13 @@ async function toSpot(row) {
     availableTo: row.availableTo || "23:59",
     instructions: row.instructions || "",
     isFavorite: !!row.isFavorite,
-    available: !!row.available,
+    // `available` reflects BOTH the host's on/off flag and the date window, so
+    // a listing outside its dates stops taking requests and reads as closed.
+    available: isSpotAvailableNow(row),
     views: Math.max(0, Number(row.views) || 0),
+    availableAlways,
+    availableStartDate: row.availableStartDate || null,
+    availableEndDate: row.availableEndDate || null,
   };
 }
 
@@ -450,6 +497,7 @@ async function toBooking(row) {
     hostPhone,
   };
   if (row.otp) booking.otp = row.otp;
+  if (row.cancelReason) booking.cancelReason = row.cancelReason;
   return booking;
 }
 
@@ -534,11 +582,48 @@ async function getSpotRow(id) {
 
 async function listSpotsByHost(hostId) {
   const spots = await allRows("spots");
-  return spots.filter((s) => s.hostId === hostId).sort(sortByDateDesc("createdAt"));
+  return spots
+    .filter((s) => s.hostId === hostId && !s.removed)
+    .sort(sortByDateDesc("createdAt"));
 }
 
 async function insertSpot(row) {
   return insertRow("spots", row);
+}
+
+/**
+ * The host removes a listing. In ONE atomic write batch:
+ *   - every still-live booking on the spot (pending/confirmed/active) is
+ *     cancelled and its host contact re-locked (drivers see it as cancelled),
+ *   - every pending incoming request for the spot is declined,
+ *   - the spot is soft-removed (removed = 1, available = 0) so it vanishes from
+ *     the map and My Space but stays on disk — the drivers' cancelled bookings
+ *     keep their spot details (and it never trips the bookings→spots FK).
+ * Returns { cancelledBookings } so the caller can tell the host what happened.
+ * No reason is recorded here — cancelling a listing is the host's call.
+ */
+async function removeListingWithCascade(spotId) {
+  await init();
+  const countRs = await client.execute({
+    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active')",
+    args: [spotId],
+  });
+  const cancelledBookings = Number(countRs.rows[0] && countRs.rows[0].n) || 0;
+  await client.batch(
+    [
+      {
+        sql: "UPDATE bookings SET status = 'cancelled', contactUnlocked = 0 WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active')",
+        args: [spotId],
+      },
+      {
+        sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status = 'pending'",
+        args: [spotId],
+      },
+      { sql: "UPDATE spots SET removed = 1, available = 0 WHERE id = ?", args: [spotId] },
+    ],
+    "write"
+  );
+  return { cancelledBookings };
 }
 
 /**
@@ -593,12 +678,13 @@ async function createBookingWithRequest(bookingRow, requestRow) {
 /**
  * Cancel a booking AND retire its linked pending host request atomically, so
  * the host never sees (or accepts) a request the driver already withdrew.
+ * `reason` (optional) is the driver's stated reason for cancelling.
  */
-async function cancelBookingWithRequest(bookingRow) {
+async function cancelBookingWithRequest(bookingRow, reason) {
   await init();
-  const stmts = [
-    updateStmt("bookings", bookingRow.id, { status: "cancelled", contactUnlocked: false }),
-  ];
+  const patch = { status: "cancelled", contactUnlocked: false };
+  if (reason) patch.cancelReason = String(reason);
+  const stmts = [updateStmt("bookings", bookingRow.id, patch)];
   const request = await findRequestByBookingId(bookingRow.id);
   if (request && request.status === "pending") {
     stmts.push(updateStmt("host_requests", request.id, { status: "declined" }));
@@ -712,6 +798,7 @@ module.exports = {
   toBooking,
   toHostRequest,
   toEarning,
+  isSpotAvailableNow,
   // users
   getUserById,
   findUserByPhone,
@@ -722,6 +809,7 @@ module.exports = {
   getSpotRow,
   listSpotsByHost,
   insertSpot,
+  removeListingWithCascade,
   incrementSpotViews,
   countActiveBookings,
   // bookings
