@@ -77,11 +77,11 @@ async function unreadCount(): Promise<number> {
 /** Marks all notifications as read and persists the state. */
 async function markAllRead(): Promise<NotificationItem[]> {
   if (isApiEnabled()) {
-    const all = await apiList();
-    await writePersisted(
-      STORAGE_KEYS.notifRead,
-      all.map((n) => n.id)
-    );
+    const [all, existing] = await Promise.all([apiList(), readReadIds()]);
+    // MERGE with what's already read (never replace — a failed fetch must not
+    // wipe the read-state) and cap the list so it can't grow forever.
+    const merged = [...new Set([...existing, ...all.map((n) => n.id)])].slice(-200);
+    await writePersisted(STORAGE_KEYS.notifRead, merged);
     return all.map((n) => ({ ...n, read: true }));
   }
   await delay(randomLatency());
@@ -96,7 +96,7 @@ async function markRead(id: string): Promise<NotificationItem[]> {
   if (isApiEnabled()) {
     const readIds = await readReadIds();
     if (!readIds.includes(id)) {
-      await writePersisted(STORAGE_KEYS.notifRead, [...readIds, id]);
+      await writePersisted(STORAGE_KEYS.notifRead, [...readIds, id].slice(-200));
     }
     return apiList();
   }

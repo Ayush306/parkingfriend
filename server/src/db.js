@@ -404,13 +404,15 @@ function todayLocal() {
 
 /**
  * A booking counts as "completed" (and so both parties may rate each other)
- * once it was accepted (confirmed/active) AND its parking date is in the past.
- * There's no separate "finished" action — the date passing is the signal.
+ * once it was accepted (confirmed/active) AND every parking day has fully
+ * passed — a 3-day parking isn't complete after its first night. There's no
+ * separate "finished" action — time passing is the signal.
+ * (bookingDays / completedDaysOf are declared below; function hoisting.)
  */
 function isBookingCompleted(row) {
   if (!row) return false;
   if (row.status !== "confirmed" && row.status !== "active") return false;
-  return String(row.date || "") < todayLocal();
+  return completedDaysOf(row, todayLocal()) >= bookingDays(row);
 }
 
 /**
@@ -765,30 +767,32 @@ async function insertSpot(row) {
  */
 async function removeListingWithCascade(spotId) {
   await init();
-  // Only cancel bookings that haven't happened yet (today or later). A parking
-  // that already took place (a past confirmed/active booking) stays as-is so
-  // its history survives and BOTH sides can still rate each other.
+  // Cancel everything that hasn't fully happened: future bookings AND
+  // multi-day parkings still in progress (they must stop accruing once the
+  // listing is gone). Only FULLY completed parkings are preserved as history,
+  // so both sides can still rate each other for days that really happened.
   const today = todayLocal();
-  const countRs = await client.execute({
-    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active') AND date >= ?",
-    args: [spotId, today],
+  const liveRs = await client.execute({
+    sql: "SELECT * FROM bookings WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active')",
+    args: [spotId],
   });
-  const cancelledBookings = Number(countRs.rows[0] && countRs.rows[0].n) || 0;
-  await client.batch(
-    [
-      {
-        sql: "UPDATE bookings SET status = 'cancelled', contactUnlocked = 0 WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active') AND date >= ?",
-        args: [spotId, today],
-      },
-      {
-        sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status = 'pending'",
-        args: [spotId],
-      },
-      { sql: "UPDATE spots SET removed = 1, available = 0 WHERE id = ?", args: [spotId] },
-    ],
-    "write"
+  const toCancel = liveRs.rows
+    .map((r) => decodeRow("bookings", r))
+    // Pending requests are never history; accepted ones survive only if done.
+    .filter((b) => b.status === "pending" || completedDaysOf(b, today) < bookingDays(b))
+    .map((b) => b.id);
+  const stmts = toCancel.map((id) =>
+    updateStmt("bookings", id, { status: "cancelled", contactUnlocked: false })
   );
-  return { cancelledBookings };
+  stmts.push(
+    {
+      sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status = 'pending'",
+      args: [spotId],
+    },
+    { sql: "UPDATE spots SET removed = 1, available = 0 WHERE id = ?", args: [spotId] }
+  );
+  await client.batch(stmts, "write");
+  return { cancelledBookings: toCancel.length };
 }
 
 /**

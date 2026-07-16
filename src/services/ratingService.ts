@@ -23,6 +23,16 @@ function todayYmd(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Demo parity with the server: completed = every parking day fully passed. */
+function isCompletedLocally(b: Booking): boolean {
+  if (b.status !== "confirmed" && b.status !== "active") return false;
+  const days = Math.max(1, Math.ceil((Number(b.durationHours) || 0) / 24));
+  const ms =
+    Date.parse(`${todayYmd()}T00:00:00Z`) - Date.parse(`${String(b.date)}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return false;
+  return Math.floor(ms / 86400000) >= days;
+}
+
 /**
  * Bookings the user still needs to rate. In API mode the server computes this
  * for both roles; in demo mode (single device) we derive the DRIVER-side
@@ -34,14 +44,8 @@ async function getPending(): Promise<PendingRating[]> {
   const bookings = await readPersisted<Booking[]>(STORAGE_KEYS.bookings, []);
   const rated = await readPersisted<LocalRating[]>(STORAGE_KEYS.ratings, []);
   const ratedKeys = new Set(rated.map((r) => `${r.bookingId}:${r.role}`));
-  const today = todayYmd();
   return bookings
-    .filter(
-      (b) =>
-        (b.status === "confirmed" || b.status === "active") &&
-        String(b.date) < today &&
-        !ratedKeys.has(`${b.id}:driver`)
-    )
+    .filter((b) => isCompletedLocally(b) && !ratedKeys.has(`${b.id}:driver`))
     .map((b) => ({
       bookingId: b.id,
       role: "driver" as const,

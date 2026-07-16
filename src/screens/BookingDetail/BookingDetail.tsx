@@ -372,7 +372,9 @@ export default function BookingDetail() {
           >
             <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
             <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
-              Contact details are hidden for cancelled bookings.
+              {booking.status === "pending"
+                ? "Waiting for the host to accept — their number appears here after."
+                : "Contact details are hidden for this booking."}
             </Text>
           </View>
         )}

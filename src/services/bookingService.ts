@@ -34,6 +34,26 @@ export interface CreateBookingPayload {
   amount?: number;
 }
 
+/** Device-local today as YYYY-MM-DD. */
+function todayYmd(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Demo parity with the server's isBookingCompleted: an accepted booking is
+ * completed once EVERY parking day has fully passed.
+ */
+function isCompletedLocally(b: Booking): boolean {
+  if (b.status !== "confirmed" && b.status !== "active") return false;
+  const days = Math.max(1, Math.ceil((Number(b.durationHours) || 0) / 24));
+  const ms =
+    Date.parse(`${todayYmd()}T00:00:00Z`) - Date.parse(`${String(b.date)}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return false;
+  return Math.floor(ms / 86400000) >= days;
+}
+
 /** Reads all bookings from storage (seeded from JSON), newest first. */
 async function readAll(): Promise<Booking[]> {
   const bookings = await readPersisted<Booking[]>(
@@ -48,6 +68,8 @@ async function readAll(): Promise<Booking[]> {
         (u) => !String(u).includes("picsum.photos")
       );
     }
+    // Same "completed once the parking days passed" flag the API serves.
+    b.completed = isCompletedLocally(b);
   }
   return bookings.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

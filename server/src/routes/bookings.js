@@ -131,6 +131,11 @@ router.post("/", ah(async (req, res) => {
     if (!DATE_RE.test(date)) {
       return res.status(400).json({ error: '"date" must be in YYYY-MM-DD format' });
     }
+    // No backdated bookings — a past "parking" would instantly accrue money
+    // for something that never happened. (Tests opt out via env.)
+    if (date < todayLocal() && process.env.ALLOW_PAST_BOOKINGS !== "1") {
+      return res.status(400).json({ error: "You can't request parking for a past date." });
+    }
   }
   let times = resolveTimes(body, durationHours);
   if (!times) {
@@ -188,8 +193,11 @@ router.post("/:id/cancel", ah(async (req, res) => {
   if (booking.status === "cancelled") {
     return res.json(await db.toBooking(booking)); // already cancelled — idempotent
   }
-  if (booking.status === "completed") {
-    return res.status(409).json({ error: "A completed booking cannot be cancelled" });
+  // A parking that already fully happened is history — the derived completed
+  // state guards it (no booking ever literally carries status "completed"),
+  // so a late cancel can't erase the host's accrued earnings or the ratings.
+  if (booking.status === "completed" || db.isBookingCompleted(booking)) {
+    return res.status(409).json({ error: "This parking already happened — it can't be cancelled." });
   }
   // The driver's stated reason is stored on the booking. Cancelling also
   // retires the linked pending host request, so the host's "Incoming requests"
