@@ -1,4 +1,4 @@
-import type { ParkingSpot, VehicleType } from "@/models/types";
+import type { ParkingSpot, SpotReview, VehicleType } from "@/models/types";
 import spotsData from "@/data/spots.json";
 import {
   clone,
@@ -183,6 +183,13 @@ async function recordView(id: string): Promise<void> {
   }
 }
 
+/** Public reviews for a spot (driver → host). Demo mode has none to show. */
+async function getReviews(id: string): Promise<SpotReview[]> {
+  if (isApiEnabled()) return apiSpots.getReviews(id);
+  await delay(randomLatency());
+  return [];
+}
+
 /** Returns a single spot by id, or null if not found. */
 async function getById(id: string): Promise<ParkingSpot | null> {
   if (isApiEnabled()) return apiSpots.getById(id);
@@ -237,6 +244,7 @@ export const spotService = {
   getPopular,
   search,
   getById,
+  getReviews,
   recordView,
   getFavorites,
   getFavoriteIds,

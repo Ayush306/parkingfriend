@@ -146,4 +146,5 @@ export const STORAGE_KEYS = {
   listings: "pm_listings",
   requests: "pm_requests",
   recentSearches: "pm_recent_searches",
+  ratings: "pm_ratings",
 } as const;

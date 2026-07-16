@@ -22,6 +22,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { NoBookings } from "@/components/illustrations/NoBookings";
 import { CancelReasonSheet } from "@/components/ui/CancelReasonSheet";
+import { PendingRatings } from "@/components/ui/PendingRatings";
 import { useToast } from "@/components/ui/Toast";
 
 import { useTheme } from "@/theme/ThemeContext";
@@ -247,7 +248,11 @@ export default function Bookings() {
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={["top", "left", "right"]}>
       <Header title="My bookings" large />
 
-      <View style={{ paddingHorizontal: spacing.xl, marginBottom: spacing.md }}>
+      <View style={{ paddingHorizontal: spacing.xl }}>
+        <PendingRatings role="driver" />
+      </View>
+
+      <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.md }}>
         <SegmentedControl
           options={[...TABS]}
           value={tab}

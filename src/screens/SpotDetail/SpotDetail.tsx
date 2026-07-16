@@ -26,8 +26,7 @@ import { bookingService } from "@/services/bookingService";
 import { formatDistance, formatTime, formatDate } from "@/utils/format";
 import { openDirections } from "@/utils/directions";
 import { useToast } from "@/components/ui/Toast";
-import type { ParkingSpot, Review } from "@/models/types";
-import reviewsData from "@/data/reviews.json";
+import type { ParkingSpot, SpotReview } from "@/models/types";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -45,8 +44,6 @@ import { ErrorState } from "@/components/ui/ErrorState";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const HERO_H = 300;
-
-const allReviews = reviewsData as unknown as Review[];
 
 const TYPE_LABEL: Record<ParkingSpot["type"], string> = {
   home: "Home",
@@ -101,6 +98,11 @@ export default function SpotDetail() {
   );
   const spot = spotAsync.data;
 
+  const reviewsAsync = useAsync<SpotReview[]>(
+    () => spotService.getReviews(spotId),
+    [spotId]
+  );
+
   // Count a view once per spot — but not when the host opens their own listing.
   const viewedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -125,9 +127,10 @@ export default function SpotDetail() {
     []
   );
 
+  const allReviews = reviewsAsync.data ?? [];
   const reviews = useMemo(
     () => (showAllReviews ? allReviews : allReviews.slice(0, 3)),
-    [showAllReviews]
+    [showAllReviews, allReviews]
   );
 
   const pins = useMemo<MapPin[]>(() => [{ x: 0.5, y: 0.46, primary: true }], []);
@@ -364,7 +367,23 @@ export default function SpotDetail() {
           </View>
 
           <View style={{ marginTop: spacing.sm }}>
-            <RatingStars value={spot.rating} size={16} count={spot.reviewsCount} />
+            {spot.reviewsCount > 0 ? (
+              <RatingStars value={spot.rating} size={16} count={spot.reviewsCount} />
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="sparkles-outline" size={14} color={colors.textMuted} />
+                <Text
+                  style={{
+                    marginLeft: 5,
+                    color: colors.textMuted,
+                    fontFamily: typography.fonts.bodyMedium,
+                    fontSize: typography.sizes.sm,
+                  }}
+                >
+                  New — no ratings yet
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* vehicle types */}
@@ -433,16 +452,20 @@ export default function SpotDetail() {
                   </Text>
                 </View>
                 <View style={styles.hostRating}>
-                  <Ionicons name="star" size={14} color={colors.star} />
+                  <Ionicons
+                    name="star"
+                    size={14}
+                    color={spot.host.reviewsCount > 0 ? colors.star : colors.textMuted}
+                  />
                   <Text
                     style={{
                       marginLeft: 4,
-                      color: colors.text,
+                      color: spot.host.reviewsCount > 0 ? colors.text : colors.textMuted,
                       fontFamily: typography.fonts.bodySemi,
                       fontSize: typography.sizes.sm,
                     }}
                   >
-                    {spot.host.rating.toFixed(1)}
+                    {spot.host.reviewsCount > 0 ? spot.host.rating.toFixed(1) : "New"}
                   </Text>
                 </View>
               </View>
@@ -661,7 +684,7 @@ export default function SpotDetail() {
                 ]}
               >
                 <View style={styles.reviewHead}>
-                  <Avatar uri={r.avatar} name={r.userName} size={40} />
+                  <Avatar uri={r.raterAvatar ?? undefined} name={r.raterName} size={40} />
                   <View style={[styles.flex, { marginLeft: spacing.sm }]}>
                     <Text
                       style={{
@@ -670,10 +693,10 @@ export default function SpotDetail() {
                         fontSize: typography.sizes.sm,
                       }}
                     >
-                      {r.userName}
+                      {r.raterName}
                     </Text>
                     <View style={{ marginTop: 2 }}>
-                      <RatingStars value={r.rating} size={12} />
+                      <RatingStars value={r.stars} size={12} />
                     </View>
                   </View>
                 </View>

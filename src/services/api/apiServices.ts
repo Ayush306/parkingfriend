@@ -11,6 +11,8 @@ import type {
   EarningEntry,
   HostRequest,
   ParkingSpot,
+  PendingRating,
+  SpotReview,
   User,
   WalletSummary,
 } from "@/models/types";
@@ -125,6 +127,7 @@ function normalizeBooking(raw: any): Booking {
     otp: raw?.otp ?? undefined,
     hostPhone: raw?.hostPhone ?? null,
     cancelReason: raw?.cancelReason ?? undefined,
+    completed: raw?.completed ?? undefined,
   };
 }
 
@@ -144,7 +147,10 @@ function normalizeUser(raw: any): User {
     avatar: raw?.avatar ?? undefined,
     verified: !!raw?.verified,
     memberSince: raw?.memberSince ?? raw?.createdAt ?? new Date().toISOString(),
-    rating: Number(raw?.rating ?? 5),
+    rating: Number(raw?.rating ?? 0),
+    reviewsCount: Number(raw?.reviewsCount ?? 0),
+    driverRating: Number(raw?.driverRating ?? 0),
+    driverRatingCount: Number(raw?.driverRatingCount ?? 0),
     role: raw?.role ?? "both",
   };
 }
@@ -155,6 +161,10 @@ function normalizeRequest(raw: any): HostRequest {
     id: String(raw?.id ?? ""),
     spotTitle: raw?.spotTitle ?? "Your space",
     requesterName: raw?.requesterName ?? "Driver",
+    requesterRating:
+      raw?.requesterRating !== undefined ? Number(raw.requesterRating) : undefined,
+    requesterRatingCount:
+      raw?.requesterRatingCount !== undefined ? Number(raw.requesterRatingCount) : undefined,
     vehicleType: raw?.vehicleType ?? "car",
     status: raw?.status ?? "pending",
   } as HostRequest;
@@ -301,6 +311,22 @@ export const apiSpots = {
     );
     return Number(res?.views ?? 0) || 0;
   },
+
+  /** Public reviews (driver → host) for a spot, newest first. */
+  async getReviews(id: string): Promise<SpotReview[]> {
+    const raw = await http.request<any[]>(
+      `/api/spots/${encodeURIComponent(id)}/reviews`,
+      { auth: false }
+    );
+    return (raw ?? []).map((r) => ({
+      id: String(r?.id ?? ""),
+      stars: Number(r?.stars ?? 0),
+      comment: r?.comment ?? "",
+      createdAt: r?.createdAt ?? new Date().toISOString(),
+      raterName: r?.raterName ?? "Driver",
+      raterAvatar: r?.raterAvatar ?? null,
+    }));
+  },
 };
 
 /* ─────────────────────────── bookings ─────────────────────────── */
@@ -381,6 +407,42 @@ export const apiHost = {
       { method: "POST", body: { accept } }
     );
     return normalizeRequest(raw);
+  },
+};
+
+/* ─────────────────────────── ratings ─────────────────────────── */
+
+function normalizePending(raw: any): PendingRating {
+  const cp = raw?.counterparty ?? {};
+  return {
+    bookingId: String(raw?.bookingId ?? ""),
+    role: raw?.role === "host" ? "host" : "driver",
+    spotId: String(raw?.spotId ?? ""),
+    spotTitle: raw?.spotTitle ?? "Parking",
+    date: raw?.date ?? "",
+    counterparty: {
+      id: String(cp?.id ?? ""),
+      name: cp?.name ?? "Someone",
+      avatar: cp?.avatar ?? null,
+      rating: Number(cp?.rating ?? 0),
+      ratingCount: Number(cp?.ratingCount ?? 0),
+    },
+  };
+}
+
+export const apiRatings = {
+  /** Everything the current user still needs to rate (both roles). */
+  async getPending(): Promise<PendingRating[]> {
+    const raw = await http.request<any[]>("/api/ratings/pending");
+    return (raw ?? []).map(normalizePending);
+  },
+
+  /** Leave a rating (1–5 + optional comment) for a completed booking. */
+  async submit(bookingId: string, stars: number, comment?: string): Promise<void> {
+    await http.request("/api/ratings", {
+      method: "POST",
+      body: { bookingId, stars, ...(comment ? { comment } : {}) },
+    });
   },
 };
 

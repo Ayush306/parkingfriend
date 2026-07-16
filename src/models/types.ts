@@ -6,7 +6,12 @@ export interface User {
   avatar?: string;
   verified: boolean;
   memberSince: string;
+  /** Reputation as a HOST (drivers rate hosts). */
   rating: number;
+  reviewsCount?: number;
+  /** Reputation as a DRIVER (hosts rate drivers). */
+  driverRating?: number;
+  driverRatingCount?: number;
   role: "driver" | "host" | "both";
 }
 
@@ -18,6 +23,33 @@ export interface Host {
   reviewsCount: number;
   verified: boolean;
   responseTime: string;
+}
+
+/** One person's pending rating for a completed parking (from /api/ratings/pending). */
+export interface PendingRating {
+  bookingId: string;
+  /** "driver" = you rate the host; "host" = you rate the driver. */
+  role: "driver" | "host";
+  spotId: string;
+  spotTitle: string;
+  date: string;
+  counterparty: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    rating: number;
+    ratingCount: number;
+  };
+}
+
+/** A public review left on a spot (driver → host). */
+export interface SpotReview {
+  id: string;
+  stars: number;
+  comment: string;
+  createdAt: string;
+  raterName: string;
+  raterAvatar?: string | null;
 }
 
 /** Vehicle kinds a space can hold. "suv" is legacy — new listings use car/bike/bicycle. */
@@ -93,6 +125,8 @@ export interface Booking {
   hostPhone?: string | null;
   /** Why the driver cancelled (a picked preset or free text), when cancelled. */
   cancelReason?: string;
+  /** True once accepted AND the parking date has passed — both sides may rate. */
+  completed?: boolean;
 }
 
 export interface Transaction {
@@ -182,10 +216,14 @@ export interface OnboardingSlide {
 export interface HostRequest {
   id: string;
   spotTitle: string;
+  requesterId?: string;
   requesterName: string;
   requesterAvatar?: string;
   /** Requester's phone — so the host can also reach out after accepting. */
   requesterPhone?: string;
+  /** The requester's rating AS A DRIVER, shown to the host before accepting. */
+  requesterRating?: number;
+  requesterRatingCount?: number;
   vehicleType: string;
   date: string;
   time: string;

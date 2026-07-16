@@ -89,6 +89,24 @@ router.get("/:id", ah(async (req, res) => {
 }));
 
 /**
+ * GET /api/spots/:id/reviews — the public reviews (driver→host ratings) left
+ * for this spot, newest first, each with the reviewer's name/avatar.
+ */
+router.get("/:id/reviews", ah(async (req, res) => {
+  const ratings = await db.listRatingsBySpot(req.params.id);
+  const out = await Promise.all(
+    ratings.map(async (r) => {
+      const rater = await db.getUserById(r.raterId);
+      const o = db.toRating(r);
+      o.raterName = rater ? rater.name : "Driver";
+      o.raterAvatar = rater ? rater.avatar || null : null;
+      return o;
+    })
+  );
+  res.json(out);
+}));
+
+/**
  * POST /api/spots/:id/view — a driver opened this spot's detail page.
  * Public (no auth): the app suppresses the call for the spot's own host, so
  * a host viewing their own listing doesn't inflate the count. Returns {views}.

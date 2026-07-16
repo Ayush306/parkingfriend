@@ -33,6 +33,7 @@ app.use("/api/spots", require("./routes/spots"));
 app.use("/api/host", require("./routes/host"));
 app.use("/api/bookings", require("./routes/bookings"));
 app.use("/api/wallet", require("./routes/wallet"));
+app.use("/api/ratings", require("./routes/ratings"));
 
 // 404 for anything unmatched
 app.use((req, res) => {

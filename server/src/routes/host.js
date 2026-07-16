@@ -153,7 +153,23 @@ router.delete("/listings/:id", ah(async (req, res) => {
 }));
 
 router.get("/requests", ah(async (req, res) => {
-  res.json((await db.listRequestsByHost(req.user.id)).map(db.toHostRequest));
+  const rows = await db.listRequestsByHost(req.user.id);
+  // Attach each requester's DRIVER rating so the host sees who they're letting
+  // in before accepting.
+  const out = await Promise.all(
+    rows.map(async (row) => {
+      const r = db.toHostRequest(row);
+      if (row.requesterId) {
+        const u = await db.getUserById(row.requesterId);
+        if (u) {
+          r.requesterRating = Math.round((Number(u.driverRating) || 0) * 10) / 10;
+          r.requesterRatingCount = Number(u.driverRatingCount) || 0;
+        }
+      }
+      return r;
+    })
+  );
+  res.json(out);
 }));
 
 router.post("/requests/:id/respond", ah(async (req, res) => {

@@ -272,6 +272,14 @@ export default function SearchResults() {
                         {full ? "Full" : `${remaining} left`}
                       </Text>
                     </View>
+
+                    {/* Spot rating (or "New" until it has reviews) */}
+                    <View style={[styles.ratingPill, { backgroundColor: colors.surfaceAlt, borderRadius: radius.pill }]}>
+                      <Ionicons name="star" size={12} color={colors.star} />
+                      <Text style={{ marginLeft: 3, color: colors.textSecondary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
+                        {(item.reviewsCount ?? 0) > 0 ? `${item.rating.toFixed(1)} (${item.reviewsCount})` : "New"}
+                      </Text>
+                    </View>
                   </View>
 
                   {mine ? (
@@ -378,6 +386,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 3,
+  },
+  ratingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 8,
   },
   requestBtn: {
     flexDirection: "row",

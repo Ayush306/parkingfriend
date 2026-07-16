@@ -51,6 +51,7 @@ const backend = "libsql";
 const COLUMNS = {
   users: [
     "id", "phone", "name", "email", "avatar", "rating", "reviewsCount",
+    "driverRating", "driverRatingCount",
     "verified", "responseTime", "createdAt",
   ],
   spots: [
@@ -67,11 +68,15 @@ const COLUMNS = {
     "contactUnlocked", "otp", "cancelReason", "createdAt",
   ],
   host_requests: [
-    "id", "hostId", "spotId", "bookingId", "spotTitle", "requesterName",
+    "id", "hostId", "spotId", "bookingId", "spotTitle", "requesterId", "requesterName",
     "requesterPhone", "requesterAvatar", "vehicleType", "date", "time", "status",
   ],
   earnings: [
     "id", "userId", "kind", "title", "subtitle", "amount", "date", "bookingId",
+  ],
+  ratings: [
+    "id", "bookingId", "spotId", "raterId", "rateeId", "raterRole",
+    "stars", "comment", "createdAt",
   ],
 };
 
@@ -91,6 +96,8 @@ const DDL = [
     avatar TEXT,
     rating REAL DEFAULT 5,
     reviewsCount INTEGER DEFAULT 0,
+    driverRating REAL DEFAULT 0,
+    driverRatingCount INTEGER DEFAULT 0,
     verified INTEGER DEFAULT 0,
     responseTime TEXT,
     createdAt TEXT
@@ -153,6 +160,7 @@ const DDL = [
     spotId TEXT,
     bookingId TEXT,
     spotTitle TEXT,
+    requesterId TEXT,
     requesterName TEXT,
     requesterPhone TEXT,
     requesterAvatar TEXT,
@@ -170,6 +178,17 @@ const DDL = [
     amount REAL DEFAULT 0,
     date TEXT,
     bookingId TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS ratings (
+    id TEXT PRIMARY KEY,
+    bookingId TEXT,
+    spotId TEXT,
+    raterId TEXT,
+    rateeId TEXT,
+    raterRole TEXT,
+    stars INTEGER,
+    comment TEXT,
+    createdAt TEXT
   )`,
 ];
 
@@ -195,6 +214,13 @@ const MIGRATIONS = [
   { table: "spots", column: "removed", ddl: "ALTER TABLE spots ADD COLUMN removed INTEGER DEFAULT 0" },
   // Why a driver cancelled (free text or a picked preset) — kept for the host/records.
   { table: "bookings", column: "cancelReason", ddl: "ALTER TABLE bookings ADD COLUMN cancelReason TEXT" },
+  // Two-sided ratings: a user's reputation AS A DRIVER (hosts rate drivers);
+  // the host reputation stays on users.rating/reviewsCount (drivers rate hosts).
+  { table: "users", column: "driverRating", ddl: "ALTER TABLE users ADD COLUMN driverRating REAL DEFAULT 0" },
+  { table: "users", column: "driverRatingCount", ddl: "ALTER TABLE users ADD COLUMN driverRatingCount INTEGER DEFAULT 0" },
+  // Link a request back to the driver who made it, so the host can see that
+  // driver's rating on the incoming request and rate them after the parking.
+  { table: "host_requests", column: "requesterId", ddl: "ALTER TABLE host_requests ADD COLUMN requesterId TEXT" },
 ];
 
 let initPromise = null;
@@ -359,7 +385,10 @@ function toUser(userRow) {
     avatar: userRow.avatar || undefined,
     verified: !!userRow.verified,
     memberSince: (userRow.createdAt || new Date().toISOString()).slice(0, 10),
-    rating: Number(userRow.rating) || 5,
+    rating: Number(userRow.rating) || 0,
+    reviewsCount: Number(userRow.reviewsCount) || 0,
+    driverRating: Number(userRow.driverRating) || 0,
+    driverRatingCount: Number(userRow.driverRatingCount) || 0,
     role: "both",
   };
 }
@@ -368,6 +397,17 @@ function toUser(userRow) {
 function todayLocal() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * A booking counts as "completed" (and so both parties may rate each other)
+ * once it was accepted (confirmed/active) AND its parking date is in the past.
+ * There's no separate "finished" action — the date passing is the signal.
+ */
+function isBookingCompleted(row) {
+  if (!row) return false;
+  if (row.status !== "confirmed" && row.status !== "active") return false;
+  return String(row.date || "") < todayLocal();
 }
 
 /**
@@ -507,6 +547,7 @@ async function toBooking(row) {
     createdAt: row.createdAt,
     contactUnlocked: !!row.contactUnlocked,
     hostPhone,
+    completed: isBookingCompleted(row),
   };
   if (row.otp) booking.otp = row.otp;
   if (row.cancelReason) booking.cancelReason = row.cancelReason;
@@ -520,6 +561,7 @@ function toHostRequest(row) {
     id: row.id,
     bookingId: row.bookingId || undefined,
     spotTitle: row.spotTitle,
+    requesterId: row.requesterId || undefined,
     requesterName: row.requesterName,
     requesterPhone: row.requesterPhone || null,
     requesterAvatar: row.requesterAvatar || undefined,
@@ -563,8 +605,11 @@ async function createUser({ phone, name, email, avatar }) {
     name: (name && String(name).trim()) || "ParkingFriend User",
     email: email ? String(email).trim() : null,
     avatar: avatar || null,
-    rating: 5,
+    // No stars until real ratings arrive — reviewsCount 0 reads as "New".
+    rating: 0,
     reviewsCount: 0,
+    driverRating: 0,
+    driverRatingCount: 0,
     verified: true,
     responseTime: "within an hour",
     createdAt: new Date().toISOString(),
@@ -789,6 +834,164 @@ async function walletSummary(userId) {
   };
 }
 
+/* ───────────────────────── repository: ratings ───────────────────────── */
+
+/** ratings row -> plain object for the API (rater name is added by the route). */
+function toRating(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    bookingId: row.bookingId,
+    spotId: row.spotId || null,
+    raterId: row.raterId,
+    rateeId: row.rateeId,
+    raterRole: row.raterRole,
+    stars: Number(row.stars) || 0,
+    comment: row.comment || "",
+    createdAt: row.createdAt,
+  };
+}
+
+/** The rating already left for a booking by a given side ('driver'|'host'), or null. */
+async function getRatingByBookingRole(bookingId, raterRole) {
+  await init();
+  const rs = await client.execute({
+    sql: "SELECT * FROM ratings WHERE bookingId = ? AND raterRole = ? LIMIT 1",
+    args: [bookingId, raterRole],
+  });
+  return decodeRow("ratings", rs.rows[0]);
+}
+
+async function insertRating(row) {
+  return insertRow("ratings", row);
+}
+
+/** The driver-left reviews for a spot, newest first (for the public reviews list). */
+async function listRatingsBySpot(spotId) {
+  await init();
+  const rs = await client.execute({
+    sql: "SELECT * FROM ratings WHERE spotId = ? AND raterRole = 'driver' ORDER BY createdAt DESC",
+    args: [spotId],
+  });
+  return rs.rows.map((r) => decodeRow("ratings", r));
+}
+
+/**
+ * Recompute the denormalized reputation numbers after a driver rates a host:
+ *   - the host's overall rating (users.rating/reviewsCount) = all driver→host
+ *     ratings they've received, and
+ *   - that specific spot's rating (spots.rating/reviewsCount) = driver→host
+ *     ratings left for the spot.
+ */
+async function recomputeHostAndSpot(spotId, hostId) {
+  await init();
+  const hr = await client.execute({
+    sql: "SELECT AVG(stars) AS a, COUNT(*) AS c FROM ratings WHERE rateeId = ? AND raterRole = 'driver'",
+    args: [hostId],
+  });
+  const hAvg = hr.rows[0].a == null ? 0 : Number(hr.rows[0].a);
+  const hCount = Number(hr.rows[0].c) || 0;
+  await client.execute({
+    sql: "UPDATE users SET rating = ?, reviewsCount = ? WHERE id = ?",
+    args: [Math.round(hAvg * 100) / 100, hCount, hostId],
+  });
+  if (spotId) {
+    const sr = await client.execute({
+      sql: "SELECT AVG(stars) AS a, COUNT(*) AS c FROM ratings WHERE spotId = ? AND raterRole = 'driver'",
+      args: [spotId],
+    });
+    const sAvg = sr.rows[0].a == null ? 0 : Number(sr.rows[0].a);
+    const sCount = Number(sr.rows[0].c) || 0;
+    await client.execute({
+      sql: "UPDATE spots SET rating = ?, reviewsCount = ? WHERE id = ?",
+      args: [Math.round(sAvg * 100) / 100, sCount, spotId],
+    });
+  }
+}
+
+/** Recompute a user's driver reputation after a host rates them. */
+async function recomputeDriver(driverId) {
+  await init();
+  const r = await client.execute({
+    sql: "SELECT AVG(stars) AS a, COUNT(*) AS c FROM ratings WHERE rateeId = ? AND raterRole = 'host'",
+    args: [driverId],
+  });
+  const avg = r.rows[0].a == null ? 0 : Number(r.rows[0].a);
+  const count = Number(r.rows[0].c) || 0;
+  await client.execute({
+    sql: "UPDATE users SET driverRating = ?, driverRatingCount = ? WHERE id = ?",
+    args: [Math.round(avg * 100) / 100, count, driverId],
+  });
+}
+
+/**
+ * Every completed booking the user still needs to rate — as the driver (rating
+ * the host) AND as the host (rating the driver). Each item carries the other
+ * person's name/avatar and their relevant rating so the app can prompt nicely.
+ */
+async function pendingRatingsForUser(userId) {
+  await init();
+  const today = todayLocal();
+  const out = [];
+
+  // As a DRIVER — rate the host.
+  const asDriver = await client.execute({
+    sql: `SELECT b.* FROM bookings b
+          WHERE b.userId = ? AND b.status IN ('confirmed','active') AND b.date < ?
+          AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'driver')`,
+    args: [userId, today],
+  });
+  for (const raw of asDriver.rows) {
+    const b = decodeRow("bookings", raw);
+    const spot = await getRow("spots", b.spotId);
+    if (!spot) continue;
+    const host = await getRow("users", spot.hostId);
+    out.push({
+      bookingId: b.id,
+      role: "driver",
+      spotId: spot.id,
+      spotTitle: spot.title,
+      date: b.date,
+      counterparty: {
+        id: spot.hostId,
+        name: (host && host.name) || "Host",
+        avatar: (host && host.avatar) || null,
+        rating: host ? Math.round((Number(host.rating) || 0) * 10) / 10 : 0,
+        ratingCount: host ? Number(host.reviewsCount) || 0 : 0,
+      },
+    });
+  }
+
+  // As a HOST — rate the driver.
+  const asHost = await client.execute({
+    sql: `SELECT b.* FROM bookings b JOIN spots s ON s.id = b.spotId
+          WHERE s.hostId = ? AND b.status IN ('confirmed','active') AND b.date < ?
+          AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'host')`,
+    args: [userId, today],
+  });
+  for (const raw of asHost.rows) {
+    const b = decodeRow("bookings", raw);
+    const spot = await getRow("spots", b.spotId);
+    const driver = await getRow("users", b.userId);
+    out.push({
+      bookingId: b.id,
+      role: "host",
+      spotId: b.spotId,
+      spotTitle: spot ? spot.title : "Your space",
+      date: b.date,
+      counterparty: {
+        id: b.userId,
+        name: (driver && driver.name) || "Driver",
+        avatar: (driver && driver.avatar) || null,
+        rating: driver ? Math.round((Number(driver.driverRating) || 0) * 10) / 10 : 0,
+        ratingCount: driver ? Number(driver.driverRatingCount) || 0 : 0,
+      },
+    });
+  }
+
+  return out;
+}
+
 /* ───────────────────────── seed support ───────────────────────── */
 
 const upsertUser = (row) => upsertRow("users", row);
@@ -810,7 +1013,9 @@ module.exports = {
   toBooking,
   toHostRequest,
   toEarning,
+  toRating,
   isSpotAvailableNow,
+  isBookingCompleted,
   // users
   getUserById,
   findUserByPhone,
@@ -842,6 +1047,13 @@ module.exports = {
   listEarningsByUser,
   insertEarning,
   walletSummary,
+  // ratings
+  getRatingByBookingRole,
+  insertRating,
+  listRatingsBySpot,
+  recomputeHostAndSpot,
+  recomputeDriver,
+  pendingRatingsForUser,
   // seed helpers
   upsertUser,
   upsertSpot,

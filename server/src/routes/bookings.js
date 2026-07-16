@@ -160,6 +160,7 @@ router.post("/", ah(async (req, res) => {
     spotId: spotRow.id,
     bookingId: booking.id,
     spotTitle: spotRow.title,
+    requesterId: req.user.id,
     requesterName: req.user.name,
     requesterPhone: req.user.phone || null,
     requesterAvatar: req.user.avatar || null,

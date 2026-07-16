@@ -25,6 +25,7 @@ import { formatCurrency, formatDate } from "@/utils/format";
 import { Avatar } from "@/components/ui/Avatar";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PendingRatings } from "@/components/ui/PendingRatings";
 import { useToast } from "@/components/ui/Toast";
 import type { HostRequest, ParkingSpot, WalletSummary } from "@/models/types";
 
@@ -216,6 +217,9 @@ export default function Post() {
           </View>
         </Pressable>
 
+        {/* Rate guests whose parking has finished */}
+        <PendingRatings role="host" />
+
         {/* Incoming requests */}
         <View style={styles.subHeaderRow}>
           <Text style={[styles.subLabel, { color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
@@ -252,9 +256,18 @@ export default function Post() {
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Avatar uri={r.requesterAvatar} name={r.requesterName} size={40} />
                 <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                  <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                    {r.requesterName}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                      {r.requesterName}
+                    </Text>
+                    {/* The driver's rating so the host knows who they're letting in */}
+                    <View style={styles.driverRating}>
+                      <Ionicons name="star" size={11} color={colors.star} />
+                      <Text style={{ marginLeft: 2, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
+                        {(r.requesterRatingCount ?? 0) > 0 ? (r.requesterRating ?? 0).toFixed(1) : "New"}
+                      </Text>
+                    </View>
+                  </View>
                   <Text numberOfLines={1} style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
                     {r.spotTitle}
                   </Text>
@@ -478,6 +491,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
+  },
+  driverRating: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 6,
   },
   requestActions: {
     flexDirection: "row",
