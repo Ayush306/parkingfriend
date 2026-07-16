@@ -29,6 +29,7 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
 const TIME_RE = /^(\d{1,2}):(\d{2})$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function addHours(hhmm, hours) {
   const m = TIME_RE.exec(String(hhmm).trim());
@@ -124,7 +125,13 @@ router.post("/", ah(async (req, res) => {
       return res.status(400).json({ error: '"durationHours" must be a number between 0 and 720' });
     }
   }
-  const date = isNonEmptyString(body.date) ? body.date.trim() : todayLocal();
+  let date = todayLocal();
+  if (isNonEmptyString(body.date)) {
+    date = body.date.trim();
+    if (!DATE_RE.test(date)) {
+      return res.status(400).json({ error: '"date" must be in YYYY-MM-DD format' });
+    }
+  }
   let times = resolveTimes(body, durationHours);
   if (!times) {
     const start = DEFAULT_START_TIME;

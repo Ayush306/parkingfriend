@@ -93,6 +93,10 @@ router.get("/:id", ah(async (req, res) => {
  * for this spot, newest first, each with the reviewer's name/avatar.
  */
 router.get("/:id/reviews", ah(async (req, res) => {
+  const row = await db.getSpotRow(req.params.id);
+  if (!row || row.removed) {
+    return res.json([]);
+  }
   const ratings = await db.listRatingsBySpot(req.params.id);
   const out = await Promise.all(
     ratings.map(async (r) => {

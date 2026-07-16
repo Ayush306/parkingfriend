@@ -83,7 +83,15 @@ router.post("/", ah(async (req, res) => {
     comment,
     createdAt: new Date().toISOString(),
   };
-  await db.insertRating(row);
+  try {
+    await db.insertRating(row);
+  } catch (e) {
+    // The UNIQUE(bookingId, raterRole) index caught a double-submit race.
+    if (String((e && e.code) || e).includes("CONSTRAINT")) {
+      return res.status(409).json({ error: "You've already rated this parking." });
+    }
+    throw e;
+  }
 
   // Update the denormalized reputation numbers used everywhere in the app.
   if (raterRole === "driver") {

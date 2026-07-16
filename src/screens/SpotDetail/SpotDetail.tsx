@@ -700,17 +700,19 @@ export default function SpotDetail() {
                     </View>
                   </View>
                 </View>
-                <Text
-                  style={{
-                    marginTop: spacing.sm,
-                    color: colors.textSecondary,
-                    fontFamily: typography.fonts.body,
-                    fontSize: typography.sizes.sm,
-                    lineHeight: 20,
-                  }}
-                >
-                  {r.comment}
-                </Text>
+                {r.comment ? (
+                  <Text
+                    style={{
+                      marginTop: spacing.sm,
+                      color: colors.textSecondary,
+                      fontFamily: typography.fonts.body,
+                      fontSize: typography.sizes.sm,
+                      lineHeight: 20,
+                    }}
+                  >
+                    {r.comment}
+                  </Text>
+                ) : null}
               </MotiView>
             ))}
 

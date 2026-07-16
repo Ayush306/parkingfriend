@@ -190,6 +190,9 @@ const DDL = [
     comment TEXT,
     createdAt TEXT
   )`,
+  // One rating per side per booking — makes a double-submit race impossible
+  // even if two requests slip past the check-then-act guard in the route.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_booking_role ON ratings(bookingId, raterRole)`,
 ];
 
 /**
@@ -661,16 +664,20 @@ async function insertSpot(row) {
  */
 async function removeListingWithCascade(spotId) {
   await init();
+  // Only cancel bookings that haven't happened yet (today or later). A parking
+  // that already took place (a past confirmed/active booking) stays as-is so
+  // its history survives and BOTH sides can still rate each other.
+  const today = todayLocal();
   const countRs = await client.execute({
-    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active')",
-    args: [spotId],
+    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active') AND date >= ?",
+    args: [spotId, today],
   });
   const cancelledBookings = Number(countRs.rows[0] && countRs.rows[0].n) || 0;
   await client.batch(
     [
       {
-        sql: "UPDATE bookings SET status = 'cancelled', contactUnlocked = 0 WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active')",
-        args: [spotId],
+        sql: "UPDATE bookings SET status = 'cancelled', contactUnlocked = 0 WHERE spotId = ? AND status IN ('pending', 'confirmed', 'active') AND date >= ?",
+        args: [spotId, today],
       },
       {
         sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status = 'pending'",
