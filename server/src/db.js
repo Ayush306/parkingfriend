@@ -226,6 +226,27 @@ const MIGRATIONS = [
   { table: "host_requests", column: "requesterId", ddl: "ALTER TABLE host_requests ADD COLUMN requesterId TEXT" },
 ];
 
+/**
+ * One-time DATA resets, each keyed in the app_meta table so it runs exactly
+ * once per database, ever — shipped through the normal deploy pipeline.
+ * fresh_start_2026_07_16: wipe all pilot/test data (users, spots, bookings,
+ * requests, earnings, ratings) for the public fresh start. A database created
+ * after this key exists is never touched.
+ */
+const DATA_RESETS = [
+  {
+    key: "fresh_start_2026_07_16",
+    statements: [
+      "DELETE FROM ratings",
+      "DELETE FROM earnings",
+      "DELETE FROM host_requests",
+      "DELETE FROM bookings",
+      "DELETE FROM spots",
+      "DELETE FROM users",
+    ],
+  },
+];
+
 let initPromise = null;
 
 /** Create schema + run column migrations. Idempotent; runs once per process. */
@@ -249,6 +270,28 @@ function init() {
         });
         const names = rs.rows.map((r) => r.name);
         if (!names.includes(m.column)) await client.execute(m.ddl);
+      }
+      // One-time keyed data resets (see DATA_RESETS above).
+      await client.execute(
+        "CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, appliedAt TEXT)"
+      );
+      for (const reset of DATA_RESETS) {
+        const done = await client.execute({
+          sql: "SELECT key FROM app_meta WHERE key = ?",
+          args: [reset.key],
+        });
+        if (done.rows.length) continue;
+        await client.batch(
+          [
+            ...reset.statements,
+            {
+              sql: "INSERT INTO app_meta (key, appliedAt) VALUES (?, ?)",
+              args: [reset.key, new Date().toISOString()],
+            },
+          ],
+          "write"
+        );
+        console.log(`[db] one-time data reset applied: ${reset.key}`);
       }
     })();
   }
