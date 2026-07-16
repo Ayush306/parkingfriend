@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
+import { useAuth } from "@/context/AuthContext";
 import { spotService } from "@/services/spotService";
 import { bookingService } from "@/services/bookingService";
 import { placesService } from "@/services/placesService";
@@ -35,6 +36,7 @@ export default function SearchResults() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { colors, spacing, typography, radius, shadows } = useTheme();
+  const { user } = useAuth();
   const toast = useToast();
 
   const query: string = (route.params as any)?.query ?? "";
@@ -104,6 +106,7 @@ export default function SearchResults() {
 
   const sendRequest = useCallback(
     async (spot: NearbySpot) => {
+      if (user?.id && spot.hostId === user.id) return; // never your own listing
       setRequestingId(spot.id);
       try {
         await bookingService.create({ spotId: spot.id });
@@ -120,7 +123,7 @@ export default function SearchResults() {
         setRequestingId(null);
       }
     },
-    [toast]
+    [toast, user?.id]
   );
 
   const openSpot = useCallback(
@@ -191,6 +194,7 @@ export default function SearchResults() {
             const requested = requestedIds.has(item.id);
             const remaining = item.remainingCount ?? item.capacity ?? 1;
             const full = remaining === 0;
+            const mine = !!user?.id && item.hostId === user.id;
             return (
               <MotiView
                 from={{ opacity: 0, translateY: 14 }}
@@ -228,7 +232,11 @@ export default function SearchResults() {
                         style={{ marginTop: 2, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}
                       >
                         {formatAway(item.awayMeters)}
-                        {item.host?.name ? ` · Listed by ${item.host.name}` : ""}
+                        {mine
+                          ? " · Listed by you"
+                          : item.host?.name
+                          ? ` · Listed by ${item.host.name}`
+                          : ""}
                       </Text>
                     </View>
                     <Text
@@ -266,6 +274,30 @@ export default function SearchResults() {
                     </View>
                   </View>
 
+                  {mine ? (
+                    <View
+                      style={[
+                        styles.requestBtn,
+                        {
+                          backgroundColor: colors.surfaceAlt,
+                          borderRadius: radius.md,
+                          marginTop: spacing.md,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="home" size={15} color={colors.primary} />
+                      <Text
+                        style={{
+                          marginLeft: 6,
+                          color: colors.textSecondary,
+                          fontFamily: typography.fonts.bodySemi,
+                          fontSize: typography.sizes.sm,
+                        }}
+                      >
+                        Your listing — manage it in My Space
+                      </Text>
+                    </View>
+                  ) : (
                   <Pressable
                     onPress={() => !full && !requested && requestingId !== item.id && sendRequest(item)}
                     disabled={full || requested || requestingId === item.id}
@@ -304,6 +336,7 @@ export default function SearchResults() {
                       </>
                     )}
                   </Pressable>
+                  )}
                 </Pressable>
               </MotiView>
             );

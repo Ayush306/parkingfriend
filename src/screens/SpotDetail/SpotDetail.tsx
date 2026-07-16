@@ -140,11 +140,14 @@ export default function SpotDetail() {
     }
   };
 
+  // The host viewing their own listing manages it in My Space — no requesting.
+  const isOwnSpot = !!spot && !!user?.id && spot.hostId === user.id;
+
   // One-tap parking request — host's number appears in Bookings on accept.
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState(false);
   const sendRequest = async () => {
-    if (!spot || requested) return;
+    if (!spot || requested || isOwnSpot) return;
     setRequesting(true);
     try {
       await bookingService.create({ spotId: spot.id });
@@ -272,6 +275,11 @@ export default function SpotDetail() {
             <View style={styles.flex}>
               <View style={styles.typeRow}>
                 <Badge label={TYPE_LABEL[spot.type]} tone="primary" size="sm" />
+                {isOwnSpot ? (
+                  <View style={{ marginLeft: 6 }}>
+                    <Badge label="Your listing" tone="warning" size="sm" />
+                  </View>
+                ) : null}
                 {!spot.available ? (
                   <View style={{ marginLeft: 6 }}>
                     <Badge label="Full today" tone="error" size="sm" />
@@ -697,31 +705,45 @@ export default function SpotDetail() {
           </View>
 
           <View style={{ flex: 1, marginLeft: spacing.lg }}>
-            <Button
-              label={
-                requested
-                  ? "Requested ✓"
-                  : !spot.available ||
-                    (spot.remainingCount ?? spot.capacity ?? 1) <= 0
-                  ? "Currently full"
-                  : "Request to park"
-              }
-              variant="gradient"
-              size="lg"
-              fullWidth
-              loading={requesting}
-              disabled={
-                !spot.available ||
-                requested ||
-                (spot.remainingCount ?? spot.capacity ?? 1) <= 0
-              }
-              iconRight={
-                requested ? undefined : (
-                  <Ionicons name="paper-plane" size={17} color={colors.white} />
-                )
-              }
-              onPress={sendRequest}
-            />
+            {isOwnSpot ? (
+              <Button
+                label="Your listing · Manage in My Space"
+                variant="secondary"
+                size="lg"
+                fullWidth
+                iconLeft={<Ionicons name="home" size={17} color={colors.white} />}
+                onPress={() => {
+                  haptics.light();
+                  navigation.navigate("Main", { screen: "Post" });
+                }}
+              />
+            ) : (
+              <Button
+                label={
+                  requested
+                    ? "Requested ✓"
+                    : !spot.available ||
+                      (spot.remainingCount ?? spot.capacity ?? 1) <= 0
+                    ? "Currently full"
+                    : "Request to park"
+                }
+                variant="gradient"
+                size="lg"
+                fullWidth
+                loading={requesting}
+                disabled={
+                  !spot.available ||
+                  requested ||
+                  (spot.remainingCount ?? spot.capacity ?? 1) <= 0
+                }
+                iconRight={
+                  requested ? undefined : (
+                    <Ionicons name="paper-plane" size={17} color={colors.white} />
+                  )
+                }
+                onPress={sendRequest}
+              />
+            )}
           </View>
         </View>
       </SafeAreaView>

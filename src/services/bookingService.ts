@@ -72,6 +72,14 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     throw new Error("This parking spot is no longer available.");
   }
 
+  const session = await authService.getSession().catch(() => null);
+
+  // Self-request guard (demo parity with the server): a host can never
+  // request their own listing.
+  if (spot.hostId && session?.id && spot.hostId === session.id) {
+    throw new Error("This is your own listing — you can't request your own parking space.");
+  }
+
   // Capacity guard (demo parity with the server): a full space takes no
   // new requests.
   if ((spot.remainingCount ?? spot.capacity ?? 1) <= 0) {
@@ -82,7 +90,7 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
     id: genId("bk"),
     spotId: payload.spotId,
     spot: clone(spot),
-    userId: payload.userId ?? "u1",
+    userId: payload.userId ?? session?.id ?? "u1",
     vehicleType: payload.vehicleType ?? "car",
     vehicleNumber: (payload.vehicleNumber ?? "").trim().toUpperCase(),
     date: payload.date ?? new Date().toISOString().slice(0, 10),
@@ -104,7 +112,6 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
 
   // Raise the linked request the host sees in Post (accept/decline there).
   try {
-    const session = await authService.getSession();
     const requests = await readPersisted<HostRequest[]>(
       STORAGE_KEYS.requests,
       []

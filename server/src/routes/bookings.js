@@ -97,6 +97,11 @@ router.post("/", ah(async (req, res) => {
     return res.status(404).json({ error: "Parking spot not found" });
   }
 
+  // A host can never request their own listing.
+  if (spotRow.hostId === req.user.id) {
+    return res.status(403).json({ error: "This is your own listing — you can't request your own parking space." });
+  }
+
   // Capacity guard: no new requests once every slot is taken by an accepted
   // booking. (Pending requests don't hold slots — the host chooses.)
   const capacity = Math.max(1, Number(spotRow.capacity) || 1);
