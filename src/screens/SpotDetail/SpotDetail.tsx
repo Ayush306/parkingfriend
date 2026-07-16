@@ -218,17 +218,24 @@ export default function SpotDetail() {
       : `${formatDate(spot.availableStartDate)} – ${formatDate(spot.availableEndDate)}`;
   let closedReason: string | null = null;
   if (!spot.available) {
-    if (
-      !spot.availableAlways &&
-      spot.availableStartDate &&
-      todayYmd < spot.availableStartDate
-    ) {
+    // Prefer the server-computed state (timezone-correct); fall back to the
+    // device clock in demo mode where the server doesn't send a state.
+    const state = spot.availabilityState;
+    const upcoming =
+      state === "upcoming" ||
+      (!state &&
+        !spot.availableAlways &&
+        !!spot.availableStartDate &&
+        todayYmd < spot.availableStartDate);
+    const ended =
+      state === "ended" ||
+      (!state &&
+        !spot.availableAlways &&
+        !!spot.availableEndDate &&
+        todayYmd > spot.availableEndDate);
+    if (upcoming && spot.availableStartDate) {
       closedReason = `Opens ${formatDate(spot.availableStartDate)}`;
-    } else if (
-      !spot.availableAlways &&
-      spot.availableEndDate &&
-      todayYmd > spot.availableEndDate
-    ) {
+    } else if (ended) {
       closedReason = "This listing period has ended";
     } else {
       closedReason = "Not available right now";

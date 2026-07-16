@@ -10,6 +10,7 @@ import {
 } from "@/services/mockClient";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiSpots } from "@/services/api/apiServices";
+import { isWithinAvailabilityWindow } from "@/utils/availability";
 
 const seedSpots = spotsData as unknown as ParkingSpot[];
 
@@ -32,6 +33,10 @@ async function readAllSpots(): Promise<ParkingSpot[]> {
     // Legacy random-placeholder photos render as vehicle graphics instead.
     images: (s.images ?? []).filter((u) => !String(u).includes("picsum.photos")),
     views: Math.max(0, Number(s.views) || 0),
+    // Demo parity with the server: fold the from→to date window into
+    // `available` so an out-of-window listing reads as closed and drops out of
+    // the availableOnly search filters. (Read-only path — never written back.)
+    available: (s.available !== false) && isWithinAvailabilityWindow(s),
   }));
 }
 

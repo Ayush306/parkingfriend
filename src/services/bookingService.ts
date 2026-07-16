@@ -13,6 +13,7 @@ import {
 import { spotService } from "@/services/spotService";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiBookings } from "@/services/api/apiServices";
+import { isSpotOpenNow } from "@/utils/availability";
 
 const seedBookings = bookingsData as unknown as Booking[];
 
@@ -78,6 +79,12 @@ async function create(payload: CreateBookingPayload): Promise<Booking> {
   // request their own listing.
   if (spot.hostId && session?.id && spot.hostId === session.id) {
     throw new Error("This is your own listing — you can't request your own parking space.");
+  }
+
+  // Availability guard (demo parity with the server): a listing that's switched
+  // off or outside its from→to date window takes no new requests.
+  if (!isSpotOpenNow(spot)) {
+    throw new Error("This parking isn't available right now — try another spot nearby.");
   }
 
   // Capacity guard (demo parity with the server): a full space takes no

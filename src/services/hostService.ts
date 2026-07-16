@@ -13,6 +13,7 @@ import {
 } from "@/services/mockClient";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiHost } from "@/services/api/apiServices";
+import { isWithinAvailabilityWindow } from "@/utils/availability";
 
 const seedListings = hostListingsData as unknown as ParkingSpot[];
 const seedRequests = hostRequestsData as unknown as HostRequest[];
@@ -78,7 +79,14 @@ async function readRequests(): Promise<HostRequest[]> {
 async function getListings(): Promise<ParkingSpot[]> {
   if (isApiEnabled()) return apiHost.getListings();
   await delay(randomLatency());
-  return readListings();
+  // Fold the availability window into `available` for display parity with the
+  // server (an out-of-window listing shows as Paused). Done here, NOT in
+  // readListings, so create/delete keep writing back the raw stored flag.
+  const raw = await readListings();
+  return raw.map((s) => ({
+    ...s,
+    available: (s.available !== false) && isWithinAvailabilityWindow(s),
+  }));
 }
 
 /** Creates a new host listing from the payload and persists it. */

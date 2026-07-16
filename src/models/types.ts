@@ -62,6 +62,13 @@ export interface ParkingSpot {
   availableStartDate?: string | null;
   /** Last day the space is open (YYYY-MM-DD) — only when availableAlways is false. */
   availableEndDate?: string | null;
+  /**
+   * Server-computed availability state (in the server's timezone), so the app
+   * shows the right "why closed" reason without guessing from the device clock.
+   * open = bookable; upcoming = window hasn't started; ended = window passed;
+   * off = switched off. Absent in demo mode (the app derives it locally).
+   */
+  availabilityState?: "open" | "upcoming" | "ended" | "off";
 }
 
 export interface Booking {

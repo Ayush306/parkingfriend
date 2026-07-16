@@ -95,6 +95,7 @@ function normalizeSpot(raw: any): ParkingSpot {
     availableAlways: raw?.availableAlways === undefined ? true : !!raw.availableAlways,
     availableStartDate: raw?.availableStartDate ?? null,
     availableEndDate: raw?.availableEndDate ?? null,
+    availabilityState: raw?.availabilityState ?? undefined,
   };
 }
 

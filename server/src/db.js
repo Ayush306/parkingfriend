@@ -418,6 +418,17 @@ async function toSpot(row) {
     row.availableAlways === undefined || row.availableAlways === null
       ? true
       : !!row.availableAlways;
+  // Authoritative availability state (computed in the server's timezone so the
+  // client never has to guess the reason from the device clock):
+  //   off = switched off; upcoming = window not open yet; ended = window passed.
+  let availabilityState = "open";
+  if (!row.available) {
+    availabilityState = "off";
+  } else if (!availableAlways) {
+    const today = todayLocal();
+    if (row.availableStartDate && today < row.availableStartDate) availabilityState = "upcoming";
+    else if (row.availableEndDate && today > row.availableEndDate) availabilityState = "ended";
+  }
   return {
     id: row.id,
     title: row.title,
@@ -457,6 +468,7 @@ async function toSpot(row) {
     availableAlways,
     availableStartDate: row.availableStartDate || null,
     availableEndDate: row.availableEndDate || null,
+    availabilityState,
   };
 }
 
