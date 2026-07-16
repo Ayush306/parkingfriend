@@ -24,10 +24,9 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 
 router.get("/", ah(async (req, res) => {
   const { query, vehicleType, freeOnly, maxPrice, sort } = req.query;
-  // Soft-removed listings never surface publicly.
-  let spots = await Promise.all(
-    (await db.listSpots()).filter((r) => !r.removed).map(db.toSpot)
-  );
+  // Soft-removed listings never surface publicly. Bulk-serialized: a fixed
+  // handful of queries for the whole list, not per-spot lookups.
+  let spots = await db.toSpots((await db.listSpots()).filter((r) => !r.removed));
 
   const q = typeof query === "string" ? query.trim().toLowerCase() : "";
   if (q) {
@@ -72,9 +71,7 @@ router.get("/", ah(async (req, res) => {
 }));
 
 router.get("/popular", ah(async (req, res) => {
-  const spots = (await Promise.all(
-    (await db.listSpots()).filter((r) => !r.removed).map(db.toSpot)
-  ))
+  const spots = (await db.toSpots((await db.listSpots()).filter((r) => !r.removed)))
     .sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount)
     .slice(0, 6);
   res.json(spots);
@@ -98,15 +95,14 @@ router.get("/:id/reviews", ah(async (req, res) => {
     return res.json([]);
   }
   const ratings = await db.listRatingsBySpot(req.params.id);
-  const out = await Promise.all(
-    ratings.map(async (r) => {
-      const rater = await db.getUserById(r.raterId);
-      const o = db.toRating(r);
-      o.raterName = rater ? rater.name : "Driver";
-      o.raterAvatar = rater ? rater.avatar || null : null;
-      return o;
-    })
-  );
+  const raters = await db.getRowsByIds("users", ratings.map((r) => r.raterId));
+  const out = ratings.map((r) => {
+    const rater = raters.get(String(r.raterId)) || null;
+    const o = db.toRating(r);
+    o.raterName = rater ? rater.name : "Driver";
+    o.raterAvatar = rater ? rater.avatar || null : null;
+    return o;
+  });
   res.json(out);
 }));
 

@@ -63,19 +63,19 @@ function resolveTimes(body, durationHours) {
   return { startTime: start, endTime: end, label: `${start} - ${end}` };
 }
 
-/** totalAmount from spot pricing: full days at pricePerDay, remainder capped at a day rate. */
+/**
+ * totalAmount from spot pricing: parking is priced PER DAY — a request covers
+ * whole days (min 1), each at the listing's day price. Never an hourly split,
+ * so a "₹50/day" listing always shows ₹50, not ₹48.
+ */
 function computeAmount(spotRow, durationHours) {
   if (spotRow.isFree) return 0;
-  const perHour = Number(spotRow.pricePerHour) || 0;
-  const perDay = Number(spotRow.pricePerDay) || 0;
-  const days = Math.floor(durationHours / 24);
-  const remHours = durationHours - days * 24;
-  const remainder = perDay > 0 ? Math.min(remHours * perHour, perDay) : remHours * perHour;
-  return Math.round(days * perDay + remainder);
+  const days = Math.max(1, Math.ceil((Number(durationHours) || 0) / 24));
+  return Math.round(days * (Number(spotRow.pricePerDay) || 0));
 }
 
 router.get("/", ah(async (req, res) => {
-  res.json(await Promise.all((await db.listBookingsByUser(req.user.id)).map(db.toBooking)));
+  res.json(await db.toBookings(await db.listBookingsByUser(req.user.id)));
 }));
 
 const DEFAULT_START_TIME = "09:00";

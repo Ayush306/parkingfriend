@@ -8,7 +8,8 @@
  *                                           host can call the driver after accepting)
  *   POST /api/host/requests/:id/respond  -> {accept:boolean}
  *        accept  → request "accepted", linked booking "confirmed" + contactUnlocked
- *                  (driver now sees hostPhone), and an earning is recorded
+ *                  (driver now sees hostPhone); income accrues later, per
+ *                  completed parking day (db.hostAccruals)
  *        decline → request "declined", linked booking "cancelled" (phone never revealed)
  */
 
@@ -30,7 +31,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const isNonEmptyString = (v) => typeof v === "string" && v.trim().length > 0;
 
 router.get("/listings", ah(async (req, res) => {
-  res.json(await Promise.all((await db.listSpotsByHost(req.user.id)).map(db.toSpot)));
+  res.json(await db.toSpots(await db.listSpotsByHost(req.user.id)));
 }));
 
 router.post("/listings", ah(async (req, res) => {
@@ -155,20 +156,17 @@ router.delete("/listings/:id", ah(async (req, res) => {
 router.get("/requests", ah(async (req, res) => {
   const rows = await db.listRequestsByHost(req.user.id);
   // Attach each requester's DRIVER rating so the host sees who they're letting
-  // in before accepting.
-  const out = await Promise.all(
-    rows.map(async (row) => {
-      const r = db.toHostRequest(row);
-      if (row.requesterId) {
-        const u = await db.getUserById(row.requesterId);
-        if (u) {
-          r.requesterRating = Math.round((Number(u.driverRating) || 0) * 10) / 10;
-          r.requesterRatingCount = Number(u.driverRatingCount) || 0;
-        }
-      }
-      return r;
-    })
-  );
+  // in before accepting. One bulk lookup for all requesters, not one per row.
+  const requesters = await db.getRowsByIds("users", rows.map((row) => row.requesterId));
+  const out = rows.map((row) => {
+    const r = db.toHostRequest(row);
+    const u = row.requesterId ? requesters.get(String(row.requesterId)) : null;
+    if (u) {
+      r.requesterRating = Math.round((Number(u.driverRating) || 0) * 10) / 10;
+      r.requesterRatingCount = Number(u.driverRatingCount) || 0;
+    }
+    return r;
+  });
   res.json(out);
 }));
 
@@ -212,30 +210,10 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
     }
   }
 
-  // Record hosting income when a request is newly accepted so the wallet reflects it.
-  let earningRow = null;
-  if (accept && !wasAccepted) {
-    let amount = 150; // fallback when the spot's pricing can't be resolved
-    const spotRow = request.spotId ? await db.getSpotRow(request.spotId) : null;
-    if (spotRow && Number(spotRow.pricePerDay) > 0) {
-      amount = Number(spotRow.pricePerDay);
-    }
-    earningRow = {
-      id: db.genId("e"),
-      userId: req.user.id,
-      kind: "earning",
-      title: request.spotTitle,
-      subtitle: `${request.requesterName} parked · request accepted`,
-      amount,
-      date: new Date().toISOString(),
-      bookingId: request.bookingId || null,
-    };
-  }
-
-  // One atomic batch: request status + linked booking sync (accept confirms it
-  // and reveals the host's phone via contactUnlocked; decline cancels it with
-  // the phone still hidden) + the earning insert. No partial writes possible.
-  const updated = await db.respondToRequest(request, accept, earningRow);
+  // NOTE: no earning row is recorded here. Hosting income accrues per
+  // COMPLETED parking day (see db.hostAccruals) — accepting a request earns
+  // nothing until the parking actually happens.
+  const updated = await db.respondToRequest(request, accept, null);
 
   res.json(db.toHostRequest(updated));
 }));

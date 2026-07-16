@@ -796,23 +796,12 @@ export default function SpotDetail() {
               From
             </Text>
             <PriceTag amount={spot.pricePerDay} period="day" free={spot.isFree} />
-            {!spot.isFree ? (
-              <Text
-                style={{
-                  color: colors.textSecondary,
-                  fontFamily: typography.fonts.body,
-                  fontSize: typography.sizes.xs,
-                }}
-              >
-                or ₹{spot.pricePerHour}/hr
-              </Text>
-            ) : null}
           </View>
 
           <View style={{ flex: 1, marginLeft: spacing.lg }}>
             {isOwnSpot ? (
               <Button
-                label="Your listing · Manage in My Space"
+                label="Manage listing"
                 variant="secondary"
                 size="lg"
                 fullWidth

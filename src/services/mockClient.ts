@@ -147,4 +147,5 @@ export const STORAGE_KEYS = {
   requests: "pm_requests",
   recentSearches: "pm_recent_searches",
   ratings: "pm_ratings",
+  notifRead: "pm_notif_read",
 } as const;

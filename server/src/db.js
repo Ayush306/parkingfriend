@@ -451,12 +451,64 @@ function isSpotAvailableNow(row) {
   return true;
 }
 
-/** spots row -> ParkingSpot (types.ts) with host embedded. ASYNC (host lookup). */
-async function toSpot(row) {
+/* ── Bulk lookup helpers ──────────────────────────────────────────────
+ * Turso is a NETWORK database: every query is a round-trip. Serializing a
+ * list one row at a time (host lookup + slot count per row) turned a screen
+ * of data into dozens of sequential round-trips — the "endless shimmer".
+ * These helpers fetch everything a batch needs in a fixed handful of
+ * queries, so list endpoints answer in ~4 round-trips no matter the size. */
+
+/** Rows by id from ONE IN(...) query (chunked). Returns Map<id, row>. */
+async function getRowsByIds(table, ids) {
+  await init();
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  const out = new Map();
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const rs = await client.execute({
+      sql: `SELECT * FROM ${table} WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+      args: chunk,
+    });
+    for (const r of rs.rows) {
+      const d = decodeRow(table, r);
+      out.set(String(d.id), d);
+    }
+  }
+  return out;
+}
+
+/** Taken-slot counts for MANY spots in one GROUP BY query. Map<spotId, n>. */
+async function countActiveBookingsBulk(spotIds) {
+  await init();
+  const unique = [...new Set(spotIds.filter(Boolean).map(String))];
+  const out = new Map();
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const rs = await client.execute({
+      sql: `SELECT spotId, COUNT(*) AS n FROM bookings WHERE spotId IN (${chunk.map(() => "?").join(", ")}) AND status IN ('confirmed', 'active') AND date >= ? GROUP BY spotId`,
+      args: [...chunk, todayLocal()],
+    });
+    for (const r of rs.rows) out.set(String(r.spotId), Number(r.n) || 0);
+  }
+  return out;
+}
+
+/** Shared lookups for serializing a batch of spots: hosts + taken-slot counts. */
+async function spotContext(rows) {
+  const list = rows.filter(Boolean);
+  const [hosts, counts] = await Promise.all([
+    getRowsByIds("users", list.map((r) => r.hostId)),
+    countActiveBookingsBulk(list.map((r) => r.id)),
+  ]);
+  return { hosts, counts };
+}
+
+/** spots row -> ParkingSpot (types.ts). SYNC — all lookups come via ctx. */
+function toSpotWith(row, ctx) {
   if (!row) return null;
-  const host = toHost(await getRow("users", row.hostId));
+  const host = toHost(ctx.hosts.get(String(row.hostId)) || null);
   const capacity = Math.max(1, Number(row.capacity) || 1);
-  const remainingCount = Math.max(0, capacity - (await countActiveBookings(row.id)));
+  const remainingCount = Math.max(0, capacity - (ctx.counts.get(String(row.id)) || 0));
   const availableAlways =
     row.availableAlways === undefined || row.availableAlways === null
       ? true
@@ -515,8 +567,41 @@ async function toSpot(row) {
   };
 }
 
+/** Serialize MANY spot rows with two lookup queries total (hosts + counts). */
+async function toSpots(rows) {
+  const ctx = await spotContext(rows);
+  return rows.map((r) => (r ? toSpotWith(r, ctx) : null));
+}
+
+/** spots row -> ParkingSpot with host embedded. ASYNC (bulk path with one row). */
+async function toSpot(row) {
+  if (!row) return null;
+  return (await toSpots([row]))[0];
+}
+
+/** Whole days a booking covers — a parking request is at least one full day. */
+function bookingDays(row) {
+  const hours = Number(row && row.durationHours) || 0;
+  return Math.max(1, Math.ceil(hours / 24));
+}
+
 /**
- * bookings row -> Booking (types.ts) with spot embedded. ASYNC (spot/host lookups).
+ * What the driver pays: the LISTING's per-day price × days. Computed from the
+ * live spot row (never an hourly formula), so the number the driver sees is
+ * exactly the price on the listing — "₹50/day" can never turn into ₹48.
+ * Falls back to the stored totalAmount only if the spot row is gone.
+ */
+function bookingAmount(row, spotRow) {
+  if (spotRow) {
+    if (spotRow.isFree) return 0;
+    const perDay = Number(spotRow.pricePerDay) || 0;
+    if (perDay > 0) return Math.round(perDay * bookingDays(row));
+  }
+  return Number(row.totalAmount) || 0;
+}
+
+/**
+ * bookings row -> Booking (types.ts). SYNC — spotRow + ctx come prefetched.
  * Also carries the contract's `time` and `totalAmount` fields (additive;
  * `amount` === `totalAmount`, `startTime`/`endTime` derive from `time`).
  *
@@ -524,18 +609,18 @@ async function toSpot(row) {
  * has accepted the request (`contactUnlocked`). Before that it is null —
  * the phone must never leak to the driver pre-acceptance.
  */
-async function toBooking(row) {
+function toBookingWith(row, spotRow, ctx) {
   if (!row) return null;
-  const spotRow = await getRow("spots", row.spotId);
   let hostPhone = null;
   if (row.contactUnlocked && spotRow) {
-    const hostUser = await getRow("users", spotRow.hostId);
+    const hostUser = ctx.hosts.get(String(spotRow.hostId));
     hostPhone = (hostUser && hostUser.phone) || null;
   }
+  const amount = bookingAmount(row, spotRow);
   const booking = {
     id: row.id,
     spotId: row.spotId,
-    spot: spotRow ? await toSpot(spotRow) : null,
+    spot: spotRow ? toSpotWith(spotRow, ctx) : null,
     userId: row.userId,
     vehicleType: row.vehicleType,
     vehicleNumber: row.vehicleNumber,
@@ -544,8 +629,8 @@ async function toBooking(row) {
     endTime: row.endTime,
     time: row.time,
     durationHours: Number(row.durationHours) || 0,
-    amount: Number(row.totalAmount) || 0,
-    totalAmount: Number(row.totalAmount) || 0,
+    amount,
+    totalAmount: amount,
     status: row.status,
     createdAt: row.createdAt,
     contactUnlocked: !!row.contactUnlocked,
@@ -555,6 +640,22 @@ async function toBooking(row) {
   if (row.otp) booking.otp = row.otp;
   if (row.cancelReason) booking.cancelReason = row.cancelReason;
   return booking;
+}
+
+/** Serialize MANY booking rows in ~4 lookup queries total. */
+async function toBookings(rows) {
+  const list = rows.filter(Boolean);
+  const spotRows = await getRowsByIds("spots", list.map((b) => b.spotId));
+  const ctx = await spotContext([...spotRows.values()]);
+  return rows.map((b) =>
+    b ? toBookingWith(b, spotRows.get(String(b.spotId)) || null, ctx) : null
+  );
+}
+
+/** bookings row -> Booking with spot embedded. ASYNC (bulk path with one row). */
+async function toBooking(row) {
+  if (!row) return null;
+  return (await toBookings([row]))[0];
 }
 
 /** host_requests row -> HostRequest (types.ts) */
@@ -821,23 +922,81 @@ async function insertEarning(row) {
   return insertRow("earnings", row);
 }
 
-/** WalletSummary exactly as typed in models/types.ts. */
+/** How many of a booking's parking days are fully in the past (a day earns once it's over). */
+function completedDaysOf(row, today) {
+  const start = String(row.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return 0;
+  const ms = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return 0;
+  const elapsed = Math.floor(ms / 86400000);
+  return Math.min(bookingDays(row), Math.max(0, elapsed));
+}
+
+/**
+ * Hosting income, accrued DAY BY DAY: an accepted booking pays out the
+ * listing's pricePerDay for every parking day that has fully passed —
+ * nothing at accept time, the first ₹ appears the morning after the first
+ * parked day, and a multi-day parking keeps adding each day. walletSummary
+ * and /wallet/entries both build on this, so the numbers always agree.
+ */
+async function hostAccruals(userId) {
+  await init();
+  const today = todayLocal();
+  const rs = await client.execute({
+    sql: `SELECT b.*, s.pricePerDay AS spotPricePerDay, s.isFree AS spotIsFree, s.title AS spotTitle
+          FROM bookings b JOIN spots s ON s.id = b.spotId
+          WHERE s.hostId = ? AND b.status IN ('confirmed', 'active')`,
+    args: [userId],
+  });
+  const out = [];
+  for (const raw of rs.rows) {
+    const daysTotal = bookingDays(raw);
+    const daysDone = completedDaysOf(raw, today);
+    if (daysDone <= 0) continue; // nothing earned until a day has passed
+    const perDay = raw.spotIsFree ? 0 : Number(raw.spotPricePerDay) || 0;
+    out.push({
+      bookingId: raw.id,
+      title: raw.spotTitle || "Your space",
+      date: raw.date,
+      daysDone,
+      daysTotal,
+      amount: Math.round(perDay * daysDone),
+      completed: daysDone >= daysTotal,
+    });
+  }
+  return out;
+}
+
+/**
+ * WalletSummary exactly as typed in models/types.ts.
+ * Host earnings are computed live from completed parking days (hostAccruals);
+ * legacy accept-time 'earning' rows are IGNORED so nothing double-counts.
+ * Driver savings still come from stored 'saving' rows.
+ */
 async function walletSummary(userId) {
   const entries = await listEarningsByUser(userId);
   const savings = entries.filter((e) => e.kind === "saving");
-  const earnings = entries.filter((e) => e.kind === "earning");
+  const accruals = await hostAccruals(userId);
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - 3);
   const cutoffMs = cutoff.getTime();
-  const within3m = (e) => new Date(e.date).getTime() >= cutoffMs;
+  const within3m = (x) => new Date(x.date).getTime() >= cutoffMs;
   const sum = (list) => list.reduce((total, e) => total + (Number(e.amount) || 0), 0);
+  // Driver side: how many of the user's own parkings are fully done.
+  const today = todayLocal();
+  const own = await listBookingsByUser(userId);
+  const completedAsDriver = own.filter(
+    (b) =>
+      (b.status === "confirmed" || b.status === "active") &&
+      completedDaysOf(b, today) >= bookingDays(b)
+  ).length;
   return {
     savingsLast3Months: sum(savings.filter(within3m)),
     savingsLifetime: sum(savings),
-    earningsLast3Months: sum(earnings.filter(within3m)),
-    earningsLifetime: sum(earnings),
-    completedAsDriver: savings.length,
-    completedAsHost: earnings.length,
+    earningsLast3Months: sum(accruals.filter(within3m)),
+    earningsLifetime: sum(accruals),
+    completedAsDriver,
+    completedAsHost: accruals.filter((a) => a.completed).length,
   };
 }
 
@@ -948,11 +1107,31 @@ async function pendingRatingsForUser(userId) {
           AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'driver')`,
     args: [userId, today],
   });
-  for (const raw of asDriver.rows) {
-    const b = decodeRow("bookings", raw);
-    const spot = await getRow("spots", b.spotId);
+  const driverRows = asDriver.rows.map((raw) => decodeRow("bookings", raw));
+
+  // As a HOST — rate the driver.
+  const asHost = await client.execute({
+    sql: `SELECT b.* FROM bookings b JOIN spots s ON s.id = b.spotId
+          WHERE s.hostId = ? AND b.status IN ('confirmed','active') AND b.date < ?
+          AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'host')`,
+    args: [userId, today],
+  });
+  const hostRows = asHost.rows.map((raw) => decodeRow("bookings", raw));
+
+  // Bulk-fetch every spot and person these prompts mention (2 queries).
+  const spots = await getRowsByIds("spots", [...driverRows, ...hostRows].map((b) => b.spotId));
+  const users = await getRowsByIds("users", [
+    ...driverRows.map((b) => {
+      const s = spots.get(String(b.spotId));
+      return s && s.hostId;
+    }),
+    ...hostRows.map((b) => b.userId),
+  ]);
+
+  for (const b of driverRows) {
+    const spot = spots.get(String(b.spotId));
     if (!spot) continue;
-    const host = await getRow("users", spot.hostId);
+    const host = users.get(String(spot.hostId)) || null;
     out.push({
       bookingId: b.id,
       role: "driver",
@@ -969,17 +1148,9 @@ async function pendingRatingsForUser(userId) {
     });
   }
 
-  // As a HOST — rate the driver.
-  const asHost = await client.execute({
-    sql: `SELECT b.* FROM bookings b JOIN spots s ON s.id = b.spotId
-          WHERE s.hostId = ? AND b.status IN ('confirmed','active') AND b.date < ?
-          AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'host')`,
-    args: [userId, today],
-  });
-  for (const raw of asHost.rows) {
-    const b = decodeRow("bookings", raw);
-    const spot = await getRow("spots", b.spotId);
-    const driver = await getRow("users", b.userId);
+  for (const b of hostRows) {
+    const spot = spots.get(String(b.spotId)) || null;
+    const driver = users.get(String(b.userId)) || null;
     out.push({
       bookingId: b.id,
       role: "host",
@@ -1013,16 +1184,19 @@ module.exports = {
   init,
   genId,
   normalizePhone,
-  // serializers (toSpot/toBooking are async)
+  // serializers (toSpot/toBooking are async; the plural forms are bulk)
   toHost,
   toUser,
   toSpot,
+  toSpots,
   toBooking,
+  toBookings,
   toHostRequest,
   toEarning,
   toRating,
   isSpotAvailableNow,
   isBookingCompleted,
+  getRowsByIds,
   // users
   getUserById,
   findUserByPhone,
@@ -1054,6 +1228,7 @@ module.exports = {
   listEarningsByUser,
   insertEarning,
   walletSummary,
+  hostAccruals,
   // ratings
   getRatingByBookingRole,
   insertRating,

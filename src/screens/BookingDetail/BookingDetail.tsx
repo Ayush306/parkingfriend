@@ -69,17 +69,24 @@ interface TimelineStep {
   desc: string;
 }
 
-/** Builds the vertical status timeline for a booking. */
-function buildTimeline(status: Booking["status"]): {
+/**
+ * Builds the vertical status timeline for a booking. Three real steps only —
+ * placed → host confirmed → completed. "Completed" lights up by itself once
+ * the parking date has passed (booking.completed); there's no separate
+ * "parking active" stage in this flow.
+ */
+function buildTimeline(
+  status: Booking["status"],
+  isCompleted: boolean
+): {
   steps: TimelineStep[];
   currentIndex: number;
   cancelled: boolean;
 } {
   const base: TimelineStep[] = [
-    { key: "booked", title: "Booking placed", desc: "Request sent & spot reserved" },
+    { key: "booked", title: "Booking placed", desc: "Request sent to the host" },
     { key: "confirmed", title: "Host confirmed", desc: "Your spot is locked in" },
-    { key: "active", title: "Parking active", desc: "Use your OTP to check in" },
-    { key: "completed", title: "Completed", desc: "Session wrapped up" },
+    { key: "completed", title: "Completed", desc: "Parking day is over" },
   ];
 
   if (status === "cancelled") {
@@ -93,17 +100,10 @@ function buildTimeline(status: Booking["status"]): {
     };
   }
 
-  const order: Record<Exclude<Booking["status"], "cancelled">, number> = {
-    pending: 0,
-    confirmed: 1,
-    active: 2,
-    completed: 3,
-  };
-  return {
-    steps: base,
-    currentIndex: order[status as Exclude<Booking["status"], "cancelled">] ?? 0,
-    cancelled: false,
-  };
+  let currentIndex = 0;
+  if (isCompleted || status === "completed") currentIndex = 2;
+  else if (status === "confirmed" || status === "active") currentIndex = 1;
+  return { steps: base, currentIndex, cancelled: false };
 }
 
 export default function BookingDetail() {
@@ -122,13 +122,21 @@ export default function BookingDetail() {
   const [cancelling, setCancelling] = useState(false);
 
   const booking = data;
+  // A confirmed booking whose parking date has passed IS completed — the
+  // server flags it, and every label/action below follows that.
+  const isCompleted = !!booking?.completed && booking?.status !== "cancelled";
+  const effectiveStatus: Booking["status"] =
+    booking && isCompleted ? "completed" : booking?.status ?? "pending";
   const timeline = useMemo(
-    () => (booking ? buildTimeline(booking.status) : null),
-    [booking]
+    () => (booking ? buildTimeline(booking.status, isCompleted) : null),
+    [booking, isCompleted]
   );
 
+  // A parking that already happened can't be cancelled.
   const canCancel =
-    booking && (booking.status === "confirmed" || booking.status === "pending");
+    booking &&
+    !isCompleted &&
+    (booking.status === "confirmed" || booking.status === "pending");
   const contactUnlocked = booking?.contactUnlocked ?? false;
 
   const getDirections = async () => {
@@ -139,10 +147,16 @@ export default function BookingDetail() {
     }
   };
 
+  // Call the REAL number the host registered with — revealed by the server
+  // only after they accepted (booking.hostPhone). Never a placeholder.
   const callHost = () => {
-    const number = "+919811024567";
+    const number = booking?.hostPhone;
+    if (!number) {
+      toast.show("The host's number isn't available yet.", "warning");
+      return;
+    }
     haptics.light();
-    Linking.openURL(`tel:${number}`).catch(() =>
+    Linking.openURL(`tel:${number.replace(/\s+/g, "")}`).catch(() =>
       toast.show("Couldn't open the dialer on this device.", "error")
     );
   };
@@ -199,7 +213,7 @@ export default function BookingDetail() {
         title="Booking details"
         showBack
         onBack={() => navigation.goBack()}
-        right={<Badge label={STATUS_LABEL[booking.status]} tone={STATUS_TONE[booking.status]} />}
+        right={<Badge label={STATUS_LABEL[effectiveStatus]} tone={STATUS_TONE[effectiveStatus]} />}
         transparent
       />
 
@@ -250,7 +264,17 @@ export default function BookingDetail() {
         <Divider style={{ marginVertical: spacing.md }} />
         <InfoRow icon="time-outline" label="Time" value={`${label12h(booking.startTime)} – ${label12h(booking.endTime)}`} colors={colors} typography={typography} spacing={spacing} />
         <Divider style={{ marginVertical: spacing.md }} />
-        <InfoRow icon="hourglass-outline" label="Duration" value={`${booking.durationHours} ${booking.durationHours === 1 ? "hour" : "hours"}`} colors={colors} typography={typography} spacing={spacing} />
+        <InfoRow
+          icon="hourglass-outline"
+          label="Duration"
+          value={(() => {
+            const days = Math.max(1, Math.ceil((booking.durationHours || 0) / 24));
+            return `${days} ${days === 1 ? "day" : "days"}`;
+          })()}
+          colors={colors}
+          typography={typography}
+          spacing={spacing}
+        />
         <Divider style={{ marginVertical: spacing.md }} />
         <InfoRow icon="car-sport-outline" label="Vehicle" value={`${booking.vehicleType} · ${booking.vehicleNumber}`} colors={colors} typography={typography} spacing={spacing} />
         <Divider style={{ marginVertical: spacing.md }} />
@@ -268,7 +292,7 @@ export default function BookingDetail() {
       </Card>
 
       {/* ---------- arrival OTP ---------- */}
-      {booking.otp && booking.status !== "cancelled" && booking.status !== "completed" ? (
+      {booking.otp && booking.status !== "cancelled" && !isCompleted ? (
         <Card style={{ marginTop: spacing.lg }} elevated={false}>
           <View style={styles.rowBetween}>
             <View style={{ flex: 1 }}>
@@ -330,9 +354,9 @@ export default function BookingDetail() {
           {host.verified ? <Ionicons name="shield-checkmark" size={20} color={colors.primary} /> : null}
         </View>
 
-        {contactUnlocked ? (
+        {contactUnlocked && booking.hostPhone ? (
           <Button
-            label="Call host"
+            label={`Call host · ${booking.hostPhone}`}
             variant="outline"
             onPress={callHost}
             iconLeft={<Ionicons name="call" size={16} color={colors.primary} />}

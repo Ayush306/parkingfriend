@@ -204,14 +204,24 @@ export default function Notifications() {
 
   const handleRowPress = useCallback(
     (item: NotificationItem) => {
-      if (item.read) return;
-      // optimistic single-item read
-      setData((prev) =>
-        (prev ?? []).map((n) => (n.id === item.id ? { ...n, read: true } : n))
-      );
-      void notificationService.markRead(item.id);
+      if (!item.read) {
+        // optimistic single-item read
+        setData((prev) =>
+          (prev ?? []).map((n) => (n.id === item.id ? { ...n, read: true } : n))
+        );
+        void notificationService.markRead(item.id);
+      }
+      // A "leave a rating" reminder takes you straight to where the Rate
+      // button lives: My bookings (you rate the host) or My Space (you rate
+      // your guest).
+      if (item.id.startsWith("rate_")) {
+        haptics.light();
+        navigation.navigate("Main", {
+          screen: item.id.startsWith("rate_host") ? "Post" : "Bookings",
+        });
+      }
     },
-    [setData]
+    [setData, navigation]
   );
 
   const handleMarkAll = useCallback(async () => {

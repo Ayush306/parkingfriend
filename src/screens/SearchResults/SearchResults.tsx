@@ -302,7 +302,7 @@ export default function SearchResults() {
                           fontSize: typography.sizes.sm,
                         }}
                       >
-                        Your listing — manage it in My Space
+                        Your listing
                       </Text>
                     </View>
                   ) : (

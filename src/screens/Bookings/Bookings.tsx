@@ -42,6 +42,17 @@ const TAB_STATUS: Record<TabLabel, Booking["status"][]> = {
   Past: ["completed", "cancelled"],
 };
 
+/**
+ * An accepted booking whose parking date has passed IS completed — the server
+ * flags it (booking.completed), and it belongs under "Past", not "Accepted".
+ */
+function effectiveStatus(b: Booking): Booking["status"] {
+  if (b.completed && b.status !== "cancelled" && b.status !== "pending") {
+    return "completed";
+  }
+  return b.status;
+}
+
 const STATUS_TONE: Record<
   Booking["status"],
   "primary" | "success" | "warning" | "error" | "neutral"
@@ -109,7 +120,7 @@ export default function Bookings() {
   const filtered = useMemo(() => {
     if (!data) return [];
     const wanted = TAB_STATUS[tab];
-    return data.filter((b) => wanted.includes(b.status));
+    return data.filter((b) => wanted.includes(effectiveStatus(b)));
   }, [data, tab]);
 
   const openBooking = (b: Booking) => {
@@ -181,12 +192,12 @@ export default function Bookings() {
                 </Text>
               </View>
             </View>
-            <Badge label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} size="sm" />
+            <Badge label={STATUS_LABEL[effectiveStatus(item)]} tone={STATUS_TONE[effectiveStatus(item)]} size="sm" />
           </View>
 
           <View style={[styles.rowBetween, { marginTop: spacing.md }]}>
             <Text style={{ color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.md }}>
-              {item.spot.isFree ? "Free" : `${formatCurrency(item.amount)}/day`}
+              {item.spot.isFree ? "Free" : formatCurrency(item.amount)}
             </Text>
             <Text style={{ color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
               Pay the host directly
