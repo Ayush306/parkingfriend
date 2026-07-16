@@ -6,7 +6,6 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import {
@@ -44,25 +43,23 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const systemScheme = useColorScheme();
   const [isDark, setIsDark] = useState<boolean>(false);
   const [hydrated, setHydrated] = useState<boolean>(false);
 
-  // Load the persisted preference once on mount. Fall back to the OS scheme
-  // when the user has never made an explicit choice.
+  // ParkingFriend always starts in LIGHT mode — every fresh install, and
+  // regardless of the phone's system dark setting. The ONLY thing that turns
+  // dark mode on is the user choosing it themselves in Settings; that choice
+  // is saved on-device (works offline / in flight mode) and restored next
+  // launch. Load that saved choice once on mount.
   useEffect(() => {
     let active = true;
     (async () => {
       try {
         const stored = await AsyncStorage.getItem(THEME_STORAGE_KEY);
         if (!active) return;
-        if (stored === "dark") {
-          setIsDark(true);
-        } else if (stored === "light") {
-          setIsDark(false);
-        } else if (systemScheme === "dark") {
-          setIsDark(true);
-        }
+        // Only an explicit saved "dark" flips it; anything else stays light.
+        if (stored === "dark") setIsDark(true);
+        else setIsDark(false);
       } catch {
         // ignore read failures and keep the default light theme
       } finally {
@@ -72,8 +69,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       active = false;
     };
-    // Only run on mount; systemScheme is only used as an initial fallback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Run once on mount. The OS colour scheme is intentionally NOT consulted.
   }, []);
 
   const persist = useCallback(async (value: boolean) => {

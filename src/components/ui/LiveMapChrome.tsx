@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import {
   View,
+  Text,
   Modal,
   Platform,
   Pressable,
@@ -42,7 +43,7 @@ export function LiveMapChrome({
   expandable = true,
   renderHtml,
 }: LiveMapChromeProps) {
-  const { colors, radius, isDark } = useTheme();
+  const { colors, radius, isDark, typography } = useTheme();
   const toast = useToast();
 
   const [expanded, setExpanded] = useState(false);
@@ -160,6 +161,26 @@ export function LiveMapChrome({
             <View pointerEvents="none" style={fab(styles.expandHint)}>
               <Ionicons name="expand-outline" size={18} color={colors.primary} />
             </View>
+            {/* Obvious cue that the map opens full-screen on tap */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.tapHint,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <Ionicons name="scan-outline" size={13} color={colors.primary} />
+              <Text
+                style={{
+                  marginLeft: 5,
+                  color: colors.text,
+                  fontFamily: typography.fonts.bodySemi,
+                  fontSize: typography.sizes.xs,
+                }}
+              >
+                Tap to enlarge
+              </Text>
+            </View>
           </>
         ) : null}
       </View>
@@ -255,6 +276,22 @@ const styles = StyleSheet.create({
     right: 10,
     width: 36,
     height: 36,
+  },
+  tapHint: {
+    position: "absolute",
+    bottom: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   closeFab: {
     position: "absolute",

@@ -3,6 +3,24 @@ import { MAPBOX_TOKEN } from "@/config/mapConfig";
 import { OLA_MAPS_API_KEY, isOlaMapsEnabled } from "@/config/olaMapsConfig";
 
 /**
+ * A proper parking map-marker — a teardrop pin whose tip sits on the exact
+ * coordinate, with a white disc and a bold "P" (the universal parking mark),
+ * instead of a plain coloured dot. Injected into every map document as the
+ * `pmPin(color, big)` JS helper; `big` = the primary/selected spot. Callers set
+ * the returned SVG as a marker element's innerHTML or a Leaflet divIcon html.
+ */
+const PIN_JS = `
+function pmPin(color, big) {
+  var w = big ? 42 : 31, h = big ? 55 : 41;
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M15 39C15 39 27 24.5 27 14A12 12 0 1 0 3 14C3 24.5 15 39 15 39Z" fill="' + color + '" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>'
+    + '<circle cx="15" cy="14" r="7.4" fill="#ffffff"/>'
+    + '<text x="15" y="18.4" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" fill="' + color + '">P</text>'
+    + '</svg>';
+}
+`;
+
+/**
  * Raster tile layer for the Leaflet-based maps (the pin-picker, and the
  * fallback path when Ola vector tiles are unavailable):
  *   1. Mapbox (only if a token is configured)  2. CARTO (free, keyless).
@@ -127,8 +145,8 @@ function buildOlaVectorHtml(
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; background: ${opts.bg}; }
-  .pm-pin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
-  .pm-pin-primary { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.45); }
+  .pm-pin-wrap { line-height: 0; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }
+  .pm-pin-wrap svg { display: block; }
   .pm-you { width: 16px; height: 16px; border-radius: 50%; background: #2E7CF6; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(46,124,246,0.25), 0 1px 5px rgba(0,0,0,0.4); }
   .pm-route-badge { position: absolute; top: 10px; left: 10px; z-index: 30; padding: 6px 12px; border-radius: 999px; background: ${badgeBg}; color: ${badgeFg}; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 1px 6px rgba(0,0,0,0.25); white-space: nowrap; pointer-events: none; }
   .maplibregl-ctrl-attrib { font-size: 9px; }
@@ -136,6 +154,7 @@ function buildOlaVectorHtml(
 </head>
 <body>
 <div id="map"></div>
+<script>${PIN_JS}</script>
 <script>
   var MARKERS = ${markersJson};
   var ROUTE = ${routeJson};
@@ -166,9 +185,9 @@ function buildOlaVectorHtml(
         L.tileLayer(${JSON.stringify(carto.url)}, { tileSize: 256, zoomOffset: 0, subdomains: 'abcd', maxZoom: 19, attribution: ${JSON.stringify(carto.attribution)} }).addTo(map);
         var pts = [];
         MARKERS.forEach(function (m) {
-          var cls = m.primary ? 'pm-pin-primary' : 'pm-pin';
-          var size = m.primary ? 16 : 12;
-          var icon = L.divIcon({ className: '', html: '<div class="' + cls + '" style="background:' + (m.primary ? PRIMARY : SECONDARY) + '"></div>', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          var big = !!m.primary;
+          var w = big ? 42 : 31, h = big ? 55 : 41;
+          var icon = L.divIcon({ className: 'pm-pin-wrap', html: pmPin(big ? PRIMARY : SECONDARY, big), iconSize: [w, h], iconAnchor: [w / 2, h], popupAnchor: [0, -h + 8] });
           var mk = L.marker([m.latitude, m.longitude], { icon: icon }).addTo(map);
           if (m.title) { mk.bindPopup(m.title); }
           pts.push([m.latitude, m.longitude]);
@@ -269,9 +288,9 @@ function buildOlaVectorHtml(
       var pts = [];
       MARKERS.forEach(function (m) {
         var el = document.createElement('div');
-        el.className = m.primary ? 'pm-pin-primary' : 'pm-pin';
-        el.style.background = m.primary ? PRIMARY : SECONDARY;
-        var mk = new maplibregl.Marker({ element: el }).setLngLat([m.longitude, m.latitude]).addTo(map);
+        el.className = 'pm-pin-wrap';
+        el.innerHTML = pmPin(m.primary ? PRIMARY : SECONDARY, !!m.primary);
+        var mk = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([m.longitude, m.latitude]).addTo(map);
         if (m.title) { mk.setPopup(new maplibregl.Popup({ offset: 14, closeButton: false }).setText(m.title)); }
         pts.push([m.longitude, m.latitude]);
       });
@@ -387,8 +406,8 @@ export function buildMapHtml(
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; background: ${opts.bg}; }
-  .pm-pin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
-  .pm-pin-primary { width: 16px; height: 16px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.45); }
+  .pm-pin-wrap { line-height: 0; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }
+  .pm-pin-wrap svg { display: block; }
   .pm-you { width: 16px; height: 16px; border-radius: 50%; background: #2E7CF6; border: 3px solid #fff; box-shadow: 0 0 0 6px rgba(46,124,246,0.25), 0 1px 5px rgba(0,0,0,0.4); }
   .pm-route-badge { padding: 6px 12px; border-radius: 999px; background: ${badgeBg}; color: ${badgeFg}; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 600; box-shadow: 0 1px 6px rgba(0,0,0,0.25); white-space: nowrap; pointer-events: none; }
   .leaflet-control-attribution { font-size: 9px; }
@@ -397,6 +416,7 @@ export function buildMapHtml(
 <body>
 <div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>${PIN_JS}</script>
 <script>
   var MARKERS = ${markersJson};
   var ROUTE = ${routeJson};
@@ -435,10 +455,9 @@ export function buildMapHtml(
     }
     var pts = [];
     MARKERS.forEach(function (m) {
-      var color = m.primary ? PRIMARY : SECONDARY;
-      var cls = m.primary ? 'pm-pin-primary' : 'pm-pin';
-      var size = m.primary ? 16 : 12;
-      var icon = L.divIcon({ className: '', html: '<div class="' + cls + '" style="background:' + color + '"></div>', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+      var big = !!m.primary;
+      var w = big ? 42 : 31, h = big ? 55 : 41;
+      var icon = L.divIcon({ className: 'pm-pin-wrap', html: pmPin(big ? PRIMARY : SECONDARY, big), iconSize: [w, h], iconAnchor: [w / 2, h], popupAnchor: [0, -h + 8] });
       var mk = L.marker([m.latitude, m.longitude], { icon: icon }).addTo(map);
       if (m.title) { mk.bindPopup(m.title); }
       pts.push([m.latitude, m.longitude]);
@@ -534,7 +553,8 @@ export function buildPickerHtml(opts: BuildPickerOptions): string {
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; background: ${opts.bg}; }
-  .pm-pin { width: 24px; height: 24px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,0.5); }
+  .pm-pin-wrap { line-height: 0; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+  .pm-pin-wrap svg { display: block; }
   .pm-lm { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
   .leaflet-control-attribution { font-size: 9px; }
 </style>
@@ -542,6 +562,7 @@ export function buildPickerHtml(opts: BuildPickerOptions): string {
 <body>
 <div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>${PIN_JS}</script>
 <script>
   var CENTER = ${centerJson};
   var LANDMARKS = ${landmarksJson};
@@ -575,7 +596,7 @@ export function buildPickerHtml(opts: BuildPickerOptions): string {
     }
     map.setView(CENTER, ${zoom});
 
-    var pinIcon = L.divIcon({ className: '', html: '<div class="pm-pin" style="background:' + PRIMARY + '"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
+    var pinIcon = L.divIcon({ className: 'pm-pin-wrap', html: pmPin(PRIMARY, true), iconSize: [42, 55], iconAnchor: [21, 55] });
     var pin = L.marker(CENTER, { icon: pinIcon, draggable: true }).addTo(map);
 
     function pick(lat, lng, label) {
