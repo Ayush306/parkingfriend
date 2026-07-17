@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, StatusBar } from "react-native";
 import { MotiView } from "moti";
 import { useNavigation } from "@react-navigation/native";
@@ -19,11 +19,17 @@ export default function Splash() {
   const navigation = useNavigation<any>();
   const { colors, typography, spacing, radius, gradients } = useTheme();
   const { initializing, isOnboarded, isAuthed } = useAuth();
+  const mountAtRef = useRef(Date.now());
 
   useEffect(() => {
-    // Wait for the persisted session/onboarding state to resolve, then hold a
-    // beat so the brand animation can play before routing away.
+    // Wait for the persisted session/onboarding state (incl. server session
+    // validation) to resolve. The brand animation plays DURING that wait, so a
+    // returning user isn't held for a fixed delay on top of it — we only hold
+    // long enough to show the mark for a brief minimum.
     if (initializing) return;
+
+    const MIN_SHOW_MS = 1200;
+    const wait = Math.max(0, MIN_SHOW_MS - (Date.now() - mountAtRef.current));
 
     const timer = setTimeout(() => {
       let target: "Onboarding" | "Welcome" | "Main";
@@ -35,7 +41,7 @@ export default function Splash() {
         target = "Welcome";
       }
       navigation.reset({ index: 0, routes: [{ name: target }] });
-    }, 1600);
+    }, wait);
 
     return () => clearTimeout(timer);
   }, [initializing, isOnboarded, isAuthed, navigation]);

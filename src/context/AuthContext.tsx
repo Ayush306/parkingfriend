@@ -56,8 +56,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           authService.isOnboarded(),
         ]);
         if (!mounted) return;
-        setUser(session);
         setIsOnboarded(onboarded);
+
+        // A saved session is only trusted after the server confirms it still
+        // works. This is what routes a fresh/reinstalled app (whose stored
+        // session points at a gone/expired account) to Login/Register instead
+        // of silently landing on Home. A network/cold-start hiccup is treated
+        // as "still logged in" so we never sign out a genuine user offline.
+        if (session) {
+          const status = await authService.validateSession();
+          if (!mounted) return;
+          if (status === "invalid") {
+            await authService.logout();
+            setUser(null);
+          } else {
+            setUser(session);
+          }
+        } else {
+          setUser(null);
+        }
       } catch {
         if (mounted) {
           setUser(null);

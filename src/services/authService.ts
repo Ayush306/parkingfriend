@@ -9,8 +9,9 @@ import {
   clone,
 } from "@/services/mockClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { isApiEnabled } from "@/config/apiConfig";
+import { API_URL, isApiEnabled } from "@/config/apiConfig";
 import { apiAuth } from "@/services/api/apiServices";
+import { http } from "@/services/api/http";
 
 const seedUser = currentUser as User;
 
@@ -94,6 +95,42 @@ async function saveSession(user: User): Promise<void> {
   await writePersisted(STORAGE_KEYS.session, user);
 }
 
+/**
+ * Confirms a saved session is still good with the server. This is what stops a
+ * stale session (e.g. an APK reinstalled over an old one, or an account/token
+ * that no longer exists) from silently dropping the user onto the Home tab:
+ *   - "valid":   the token works (or we're in offline/demo mode) → keep the user
+ *   - "invalid": the server rejected it (expired token / account gone) → the
+ *                caller should sign out and show Login/Register
+ *   - "unknown": couldn't tell (offline, or the free-tier server is waking up)
+ *                → keep trusting the cached session; never sign out a real user
+ *                over a flaky network.
+ */
+async function validateSession(): Promise<"valid" | "invalid" | "unknown"> {
+  if (!isApiEnabled()) return "valid";
+  const token = await http.getToken();
+  // A session with no token can't be verified — treat as signed out.
+  if (!token) return "invalid";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch(`${API_URL}/api/me`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    // Any auth rejection (expired token, deleted account) → sign out & re-login.
+    if (res.status === 401 || res.status === 403) return "invalid";
+    if (res.ok) return "valid";
+    // 5xx / unexpected → can't prove it's invalid, keep the user signed in.
+    return "unknown";
+  } catch {
+    clearTimeout(timer);
+    // Offline or the free-tier server is still waking up — don't sign out.
+    return "unknown";
+  }
+}
+
 /** Clears the saved session (sign out) and any API token. */
 async function logout(): Promise<void> {
   await removePersisted(STORAGE_KEYS.session);
@@ -124,6 +161,7 @@ export const authService = {
   verifyOtp,
   getSession,
   saveSession,
+  validateSession,
   logout,
   isOnboarded,
   setOnboarded,
