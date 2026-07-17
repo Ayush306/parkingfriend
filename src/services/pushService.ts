@@ -16,8 +16,9 @@ import * as Notifications from "expo-notifications";
 
 /** Data attached to a notification so a tap can deep-open the right screen. */
 export interface PushData {
-  type: "host_request" | "booking_update" | "rate";
+  type: "host_request" | "booking_update" | "rate" | "chat";
   bookingId?: string;
+  spotTitle?: string;
   [key: string]: unknown;
 }
 

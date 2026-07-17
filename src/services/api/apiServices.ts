@@ -9,6 +9,7 @@
 import type {
   Booking,
   ChatMessage,
+  ChatSummary,
   ChatThread,
   EarningEntry,
   HostRequest,
@@ -451,6 +452,19 @@ export const apiRatings = {
 /* ─────────────────────────── chat ─────────────────────────── */
 
 export const apiChat = {
+  /** All live chats with their last message — polled for notifications. */
+  async summary(): Promise<ChatSummary[]> {
+    const raw = await http.request<any[]>("/api/messages");
+    return (raw ?? []).map((s: any) => ({
+      bookingId: String(s?.bookingId ?? ""),
+      spotTitle: s?.spotTitle ?? "Parking",
+      lastText: s?.lastText ?? "",
+      lastAt: s?.lastAt ?? "",
+      lastFrom: String(s?.lastFrom ?? ""),
+      lastFromName: s?.lastFromName ?? "Someone",
+    }));
+  },
+
   /** The chat thread for a booking (open flag + counterparty + messages). */
   async getThread(bookingId: string): Promise<ChatThread> {
     const raw = await http.request<any>(

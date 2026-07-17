@@ -140,6 +140,7 @@ async function logout(): Promise<void> {
   await removePersisted(STORAGE_KEYS.events).catch(() => {});
   await removePersisted(STORAGE_KEYS.seenRequests).catch(() => {});
   await removePersisted(STORAGE_KEYS.seenBookings).catch(() => {});
+  await removePersisted(STORAGE_KEYS.seenChats).catch(() => {});
   await removePersisted(STORAGE_KEYS.notifRead).catch(() => {});
   await apiAuth.logout().catch(() => {});
 }

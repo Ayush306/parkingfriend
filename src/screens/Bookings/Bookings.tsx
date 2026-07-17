@@ -7,6 +7,7 @@ import {
   Linking,
   RefreshControl,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { MotiView } from "moti";
@@ -97,7 +98,7 @@ export default function Bookings() {
   const toast = useToast();
   const userLoc = useUserLocation();
 
-  const { data, loading, error, refetch, refetchSilent } = useAsync<Booking[]>(
+  const { data, loading, refreshing: bgRefreshing, error, refetch, refetchSilent } = useAsync<Booking[]>(
     () => bookingService.list(),
     []
   );
@@ -308,7 +309,15 @@ export default function Bookings() {
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={["top", "left", "right"]}>
-      <Header title="My bookings" large />
+      <Header
+        title="My bookings"
+        large
+        right={
+          bgRefreshing && data ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : undefined
+        }
+      />
 
       <View style={{ paddingHorizontal: spacing.xl }}>
         <PendingRatings role="driver" />

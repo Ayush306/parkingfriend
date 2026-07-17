@@ -215,7 +215,16 @@ export default function Notifications() {
       //   new request       → Booking requests (accept/decline there)
       //   accepted/declined → My bookings
       //   rating reminder   → My bookings (rate host) / My Space (rate guest)
-      if (item.id.startsWith("evt_req_")) {
+      if (item.id.startsWith("evt_msg_")) {
+        // evt_msg_<bookingId>_<timestamp> — bookingId itself contains "_",
+        // so split on the LAST underscore.
+        const rest = item.id.slice("evt_msg_".length);
+        const bookingId = rest.slice(0, rest.lastIndexOf("_"));
+        if (bookingId) {
+          haptics.light();
+          navigation.navigate("Chat", { bookingId });
+        }
+      } else if (item.id.startsWith("evt_req_")) {
         haptics.light();
         navigation.navigate("HostRequests");
       } else if (item.id.startsWith("evt_bk_")) {

@@ -68,6 +68,11 @@ function handleNotificationTap(data: PushData, attempt = 0) {
   }
   if (data.type === "host_request") {
     navigationRef.navigate("HostRequests");
+  } else if (data.type === "chat" && data.bookingId) {
+    navigationRef.navigate("Chat", {
+      bookingId: String(data.bookingId),
+      spotTitle: typeof data.spotTitle === "string" ? data.spotTitle : undefined,
+    });
   } else {
     navigationRef.navigate("Main", { screen: "Bookings" });
   }

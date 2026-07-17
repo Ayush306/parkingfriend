@@ -154,5 +154,6 @@ export const STORAGE_KEYS = {
   /** Watcher snapshots — what we've already seen, so we only notify on NEW. */
   seenRequests: "pm_seen_request_ids",
   seenBookings: "pm_seen_booking_status",
+  seenChats: "pm_seen_chats",
   notifRead: "pm_notif_read",
 } as const;

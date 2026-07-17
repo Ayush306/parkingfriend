@@ -19,6 +19,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { chatService } from "@/services/chatService";
+import { activeChat } from "@/services/activeChat";
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
@@ -58,6 +59,14 @@ export default function Chat() {
   );
   // New messages from the other side appear without any spinner.
   useLiveRefresh(thread.refetchSilent, 10000);
+
+  // Tell the watcher this conversation is on screen — no popups for it.
+  useEffect(() => {
+    activeChat.bookingId = bookingId;
+    return () => {
+      if (activeChat.bookingId === bookingId) activeChat.bookingId = null;
+    };
+  }, [bookingId]);
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);

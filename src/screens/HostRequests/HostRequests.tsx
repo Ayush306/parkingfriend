@@ -24,7 +24,7 @@ import { formatDate } from "@/utils/format";
 import { hostService } from "@/services/hostService";
 import type { HostRequest } from "@/models/types";
 
-const FILTERS = ["Pending", "All"] as const;
+const FILTERS = ["Pending", "Accepted", "All"] as const;
 
 function vehicleIcon(type: string): keyof typeof Ionicons.glyphMap {
   if (type === "bike") return "bicycle-outline";
@@ -35,9 +35,10 @@ function vehicleIcon(type: string): keyof typeof Ionicons.glyphMap {
 
 function statusTone(
   status: HostRequest["status"]
-): "warning" | "success" | "error" {
+): "warning" | "success" | "error" | "neutral" {
   if (status === "accepted") return "success";
   if (status === "declined") return "error";
+  if (status === "cancelled") return "neutral";
   return "warning";
 }
 
@@ -276,7 +277,9 @@ function RequestCard({ request, index, busy, onRespond, onMessage }: RequestCard
                 fontSize: typography.sizes.sm,
               }}
             >
-              You declined this request
+              {request.status === "cancelled"
+                ? "The driver cancelled this booking — the slot is free again."
+                : "You declined this request"}
             </Text>
           </View>
         )}
@@ -309,6 +312,9 @@ export default function HostRequests() {
     const list = data ?? [];
     if (filter === "Pending") {
       return list.filter((r) => r.status === "pending");
+    }
+    if (filter === "Accepted") {
+      return list.filter((r) => r.status === "accepted");
     }
     return list;
   }, [data, filter]);

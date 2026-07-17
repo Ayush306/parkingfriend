@@ -7,6 +7,8 @@ import {
   ScrollView,
   RefreshControl,
   Image,
+  Linking,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -23,6 +25,7 @@ import { walletService } from "@/services/walletService";
 import { formatCurrency, formatDate } from "@/utils/format";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PendingRatings } from "@/components/ui/PendingRatings";
@@ -54,6 +57,15 @@ export default function Post() {
 
   const pendingRequests = (requests.data ?? []).filter(
     (r) => r.status === "pending"
+  );
+
+  // Guests whose booking the host ACCEPTED and whose parking date hasn't
+  // passed — the host's clear "who is coming" answer. Local date, not UTC.
+  const now = new Date();
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const todayYmd = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const confirmedGuests = (requests.data ?? []).filter(
+    (r) => r.status === "accepted" && String(r.date) >= todayYmd
   );
 
   const onRefresh = useCallback(async () => {
@@ -233,6 +245,10 @@ export default function Post() {
                 </Text>
               </View>
             ) : null}
+            {/* Every tab switch re-fetches — this makes that visible. */}
+            {requests.refreshing ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />
+            ) : null}
           </View>
           {/* Always available: the full inbox with history (accepted/declined). */}
           <Pressable
@@ -359,6 +375,76 @@ export default function Post() {
               View all {pendingRequests.length} requests
             </Text>
           </Pressable>
+        ) : null}
+
+        {/* Confirmed guests — accepted bookings that haven't happened yet.
+            THE answer to "did I accept this? who is coming?" */}
+        {confirmedGuests.length > 0 ? (
+          <>
+            <View style={styles.subHeaderRow}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                <Text style={[styles.subLabel, { marginLeft: 6, color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
+                  Confirmed guests · {confirmedGuests.length}
+                </Text>
+              </View>
+            </View>
+            {confirmedGuests.slice(0, 6).map((g) => (
+              <View
+                key={g.id}
+                style={[styles.requestCard, { backgroundColor: colors.surface, borderColor: colors.success + "55", borderRadius: radius.lg, marginTop: spacing.sm, ...shadows.sm }]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Avatar uri={g.requesterAvatar} name={g.requesterName} size={40} />
+                  <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                    <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                      {g.requesterName}
+                    </Text>
+                    <Text numberOfLines={1} style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
+                      {g.spotTitle} · {formatDate(g.date)}
+                    </Text>
+                  </View>
+                  <Badge label="Coming" tone="success" size="sm" />
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.sm, gap: 8 }}>
+                  {g.bookingId ? (
+                    <Pressable
+                      onPress={() => {
+                        haptics.light();
+                        navigation.navigate("Chat", { bookingId: g.bookingId, spotTitle: g.spotTitle });
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Message ${g.requesterName}`}
+                      style={({ pressed }) => [styles.guestBtn, { borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.7 : 1 }]}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} />
+                      <Text style={{ marginLeft: 6, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                        Message
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {g.requesterPhone ? (
+                    <Pressable
+                      onPress={() => {
+                        haptics.light();
+                        Linking.openURL(`tel:${g.requesterPhone!.replace(/\s+/g, "")}`).catch(() =>
+                          toast.show("Couldn't open the dialer.", "error")
+                        );
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Call ${g.requesterName}`}
+                      style={({ pressed }) => [styles.guestBtn, { backgroundColor: colors.primary, borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <Ionicons name="call" size={15} color={colors.white} />
+                      <Text style={{ marginLeft: 6, color: colors.white, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                        Call
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ))}
+          </>
         ) : null}
 
         {/* Your spaces */}
@@ -547,6 +633,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
+    borderWidth: 1.5,
+  },
+  guestBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 9,
     borderWidth: 1.5,
   },
   acceptBtn: {

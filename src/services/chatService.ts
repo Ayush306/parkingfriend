@@ -1,4 +1,4 @@
-import type { Booking, ChatMessage, ChatThread } from "@/models/types";
+import type { Booking, ChatMessage, ChatSummary, ChatThread } from "@/models/types";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiChat } from "@/services/api/apiServices";
 import { authService } from "@/services/authService";
@@ -87,4 +87,13 @@ async function send(bookingId: string, text: string): Promise<ChatMessage> {
   return message;
 }
 
-export const chatService = { getThread, send };
+/**
+ * All live chats with their last message — the notification watcher polls
+ * this. Demo mode returns none: you'd only be chatting with yourself there.
+ */
+async function summary(): Promise<ChatSummary[]> {
+  if (isApiEnabled()) return apiChat.summary();
+  return [];
+}
+
+export const chatService = { getThread, send, summary };

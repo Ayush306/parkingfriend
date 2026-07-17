@@ -38,7 +38,8 @@ export function useLiveRefresh(refresh: () => void, intervalMs = 30000): void {
 
       // Fresh data the instant the screen opens.
       refreshRef.current();
-      if (AppState.currentState === "active") startPolling();
+      // "unknown"/null (cold start) counts as foreground.
+      if (AppState.currentState !== "background" && AppState.currentState !== "inactive") startPolling();
 
       // Poll only while the app is actually in front of the user.
       const sub = AppState.addEventListener("change", (state) => {

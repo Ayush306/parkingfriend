@@ -4,6 +4,9 @@ import { AppState } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import { hostService } from "@/services/hostService";
 import { bookingService } from "@/services/bookingService";
+import { chatService } from "@/services/chatService";
+import { authService } from "@/services/authService";
+import { activeChat } from "@/services/activeChat";
 import { pushService } from "@/services/pushService";
 import { eventFeedService } from "@/services/eventFeedService";
 import { isApiEnabled } from "@/config/apiConfig";
@@ -39,49 +42,81 @@ interface SeenBookings {
 }
 
 async function sweep(): Promise<void> {
-  const [requests, bookings] = await Promise.all([
+  const [requests, bookings, chats] = await Promise.all([
     hostService.getRequests().catch(() => null),
     bookingService.list().catch(() => null),
+    chatService.summary().catch(() => null),
   ]);
 
   type Popup = { title: string; body: string; data: Parameters<typeof pushService.notify>[2] };
   const popups: Popup[] = [];
 
-  /* ── HOST: new incoming requests ── */
+  /* ── HOST: new incoming requests + drivers withdrawing ── */
   if (requests) {
     // null = this stream has never been swept (fresh install / new login):
     // seed silently. Each stream tracks its own first run, so one stream's
     // failed fetch can never trick the other into a notification storm.
-    const seenIdsRaw = await readPersisted<string[] | null>(STORAGE_KEYS.seenRequests, null);
-    const firstRun = seenIdsRaw === null;
-    const seenIds = seenIdsRaw ?? [];
-    const seen = new Set(seenIds);
-    const fresh = requests.filter((r) => !seen.has(r.id));
+    // Stored as a map id → last-seen status so STATUS CHANGES (a driver
+    // cancelling) notify too. Older installs stored a plain id array —
+    // migrate it silently ("seen" = status unknown).
+    const rawSeen = await readPersisted<Record<string, string> | string[] | null>(
+      STORAGE_KEYS.seenRequests,
+      null
+    );
+    const firstRun = rawSeen === null;
+    const prevStatus: Record<string, string> = Array.isArray(rawSeen)
+      ? Object.fromEntries(rawSeen.map((id) => [id, "seen"]))
+      : rawSeen ?? {};
 
     if (!firstRun) {
-      for (const r of fresh.filter((r) => r.status === "pending")) {
-        const when = r.date ? ` for ${formatDate(r.date)}` : "";
-        await eventFeedService.add({
-          id: `evt_req_${r.id}`,
-          title: "New parking request 🚗",
-          message: `${r.requesterName} wants to park at ${r.spotTitle}${when}. Tap to accept or decline.`,
-          type: "host",
-          icon: "car",
-        });
-        popups.push({
-          title: "New parking request 🚗",
-          body: `${r.requesterName} wants to park at ${r.spotTitle}. Tap to respond.`,
-          data: { type: "host_request" },
-        });
+      for (const r of requests) {
+        const was = prevStatus[r.id];
+
+        // Brand-new pending request → "someone wants to park".
+        if (was === undefined && r.status === "pending") {
+          const when = r.date ? ` for ${formatDate(r.date)}` : "";
+          await eventFeedService.add({
+            id: `evt_req_${r.id}`,
+            title: "New parking request 🚗",
+            message: `${r.requesterName} wants to park at ${r.spotTitle}${when}. Tap to accept or decline.`,
+            type: "host",
+            icon: "car",
+          });
+          popups.push({
+            title: "New parking request 🚗",
+            body: `${r.requesterName} wants to park at ${r.spotTitle}. Tap to respond.`,
+            data: { type: "host_request" },
+          });
+        }
+
+        // The DRIVER withdrew (pending or already-accepted) → tell the host.
+        // "declined" transitions are the host's own action — those stay silent.
+        if (was !== undefined && was !== "cancelled" && r.status === "cancelled") {
+          await eventFeedService.add({
+            id: `evt_req_${r.id}_cancelled`,
+            title: "Driver cancelled",
+            message: `${r.requesterName} cancelled their parking at ${r.spotTitle}${r.date ? ` (${formatDate(r.date)})` : ""}. The slot is free again.`,
+            type: "host",
+            icon: "close-circle",
+          });
+          popups.push({
+            title: "Driver cancelled",
+            body: `${r.requesterName} won't be parking at ${r.spotTitle}. The slot is free again.`,
+            data: { type: "host_request" },
+          });
+        }
       }
     }
-    if (fresh.length > 0 || firstRun) {
-      await writePersisted(
-        STORAGE_KEYS.seenRequests,
-        // Keep every id still present plus room for history churn.
-        [...new Set([...requests.map((r) => r.id), ...seenIds])].slice(0, 1000)
-      );
+
+    // Persist current statuses (plus recently-vanished ids, capped).
+    const nextStatus: Record<string, string> = {};
+    for (const r of requests) nextStatus[r.id] = r.status;
+    for (const [id, st] of Object.entries(prevStatus)) {
+      if (nextStatus[id] === undefined && Object.keys(nextStatus).length < 1000) {
+        nextStatus[id] = st;
+      }
     }
+    await writePersisted(STORAGE_KEYS.seenRequests, nextStatus);
   }
 
   /* ── DRIVER: my requests getting accepted / declined ── */
@@ -155,6 +190,45 @@ async function sweep(): Promise<void> {
     await writePersisted(STORAGE_KEYS.seenBookings, next);
   }
 
+  /* ── CHAT: a new message from the other person ── */
+  if (chats) {
+    const session = await authService.getSession().catch(() => null);
+    const myId = session?.id;
+    const rawChats = await readPersisted<Record<string, string> | null>(
+      STORAGE_KEYS.seenChats,
+      null
+    );
+    const firstRunChats = rawChats === null;
+    const prevAt = rawChats ?? {};
+    const nextAt: Record<string, string> = {};
+
+    for (const c of chats) {
+      nextAt[c.bookingId] = c.lastAt;
+      if (firstRunChats) continue;
+      if (!myId || c.lastFrom === myId) continue; // my own message
+      const seenAt = prevAt[c.bookingId];
+      if (seenAt !== undefined && c.lastAt <= seenAt) continue; // nothing new
+      // The user is reading this exact conversation right now — no popup,
+      // but DO record it as seen so it never fires later either.
+      if (activeChat.bookingId === c.bookingId) continue;
+
+      const preview = c.lastText.length > 80 ? `${c.lastText.slice(0, 77)}…` : c.lastText;
+      await eventFeedService.add({
+        id: `evt_msg_${c.bookingId}_${c.lastAt}`,
+        title: `💬 ${c.lastFromName}`,
+        message: `${preview} · ${c.spotTitle}`,
+        type: "booking",
+        icon: "chatbubble-ellipses",
+      });
+      popups.push({
+        title: `💬 ${c.lastFromName}`,
+        body: `${preview} · ${c.spotTitle}`,
+        data: { type: "chat", bookingId: c.bookingId, spotTitle: c.spotTitle },
+      });
+    }
+    await writePersisted(STORAGE_KEYS.seenChats, nextAt);
+  }
+
   /* ── fire the phone-panel notifications (with a storm guard) ── */
   // Demo mode is one person role-playing both sides on one device — a popup
   // would just echo their own action back at them. Feed entries still record
@@ -208,7 +282,9 @@ export function useNotificationWatcher(): void {
 
     void pushService.setup(); // ask permission early, once
     void tick();
-    if (AppState.currentState === "active") start();
+    // "unknown"/null (cold start) counts as foreground — only an explicit
+    // background/inactive state holds polling back.
+    if (AppState.currentState !== "background" && AppState.currentState !== "inactive") start();
 
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {

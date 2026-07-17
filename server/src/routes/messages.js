@@ -46,6 +46,15 @@ async function loadChat(req, res) {
   return { booking, spot, other };
 }
 
+/**
+ * GET /api/messages — summary of every live chat the caller is in, with the
+ * last message. The app polls this to raise "new message" notifications.
+ * (Registered before /:bookingId so "summary" is never treated as an id.)
+ */
+router.get("/", ah(async (req, res) => {
+  res.json(await db.chatSummaryForUser(req.user.id));
+}));
+
 router.get("/:bookingId", ah(async (req, res) => {
   const ctx = await loadChat(req, res);
   if (!ctx) return;

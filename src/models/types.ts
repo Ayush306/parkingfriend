@@ -52,6 +52,16 @@ export interface ChatMessage {
   at: string;
 }
 
+/** One live chat's latest state (from the summary poll, drives notifications). */
+export interface ChatSummary {
+  bookingId: string;
+  spotTitle: string;
+  lastText: string;
+  lastAt: string;
+  lastFrom: string;
+  lastFromName: string;
+}
+
 /** A booking's chat thread: who you're talking to + whether it's still open. */
 export interface ChatThread {
   /** False once the parking completed/cancelled — chat closed & wiped. */
@@ -245,7 +255,8 @@ export interface HostRequest {
   vehicleType: string;
   date: string;
   time: string;
-  status: "pending" | "accepted" | "declined";
+  /** "cancelled" = the DRIVER withdrew (vs "declined" = the host said no). */
+  status: "pending" | "accepted" | "declined" | "cancelled";
   /** Links back to the driver's booking so accept/decline updates it. */
   bookingId?: string;
 }

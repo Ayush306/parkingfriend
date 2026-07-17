@@ -46,7 +46,8 @@ export function usePendingRequestCount(pollMs = 45000): number {
     };
 
     load();
-    if (AppState.currentState === "active") start();
+    // "unknown"/null (cold start) counts as foreground.
+    if (AppState.currentState !== "background" && AppState.currentState !== "inactive") start();
 
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {

@@ -3,6 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export interface UseAsyncResult<T> {
   data: T | null;
   loading: boolean;
+  /**
+   * True while a SILENT background refresh is in flight (focus/interval
+   * polls). Lets screens show a subtle "updating…" hint on tab switches
+   * without the full loading skeleton.
+   */
+  refreshing: boolean;
   error: string | null;
   /** Re-runs the async function, showing the loading state. */
   refetch: () => void;
@@ -27,7 +33,9 @@ export function useAsync<T>(
 ): UseAsyncResult<T> {
   const [data, setDataState] = useState<T | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const silentInFlightRef = useRef(0);
 
   const mountedRef = useRef(true);
   // Bumped by EVERY run (silent + non-silent): the freshest response wins the
@@ -51,6 +59,9 @@ export function useAsync<T>(
     if (!silent) {
       setLoading(true);
       setError(null);
+    } else {
+      silentInFlightRef.current += 1;
+      setRefreshing(true);
     }
     try {
       const result = await fnRef.current();
@@ -70,6 +81,12 @@ export function useAsync<T>(
       // poll bumping callIdRef must not prevent this.
       if (mountedRef.current && !silent && currentLoad === loadIdRef.current) {
         setLoading(false);
+      }
+      if (silent) {
+        silentInFlightRef.current = Math.max(0, silentInFlightRef.current - 1);
+        if (mountedRef.current && silentInFlightRef.current === 0) {
+          setRefreshing(false);
+        }
       }
     }
   }, []);
@@ -94,5 +111,5 @@ export function useAsync<T>(
     );
   }, []);
 
-  return { data, loading, error, refetch, refetchSilent, setData };
+  return { data, loading, refreshing, error, refetch, refetchSilent, setData };
 }

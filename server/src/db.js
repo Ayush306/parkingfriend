@@ -909,8 +909,13 @@ async function cancelBookingWithRequest(bookingRow, reason) {
   if (reason) patch.cancelReason = String(reason);
   const stmts = [updateStmt("bookings", bookingRow.id, patch)];
   const request = await findRequestByBookingId(bookingRow.id);
-  if (request && request.status === "pending") {
-    stmts.push(updateStmt("host_requests", request.id, { status: "declined" }));
+  // The DRIVER withdrew: retire the linked request whatever its state — a
+  // PENDING one must never be acceptable afterwards, and an ACCEPTED one must
+  // not keep showing as a confirmed guest on the host's side. The distinct
+  // "cancelled" status lets the host's app say "the driver cancelled" (and
+  // notify them) instead of it looking like the host declined.
+  if (request && (request.status === "pending" || request.status === "accepted")) {
+    stmts.push(updateStmt("host_requests", request.id, { status: "cancelled" }));
   }
   await client.batch(stmts, "write");
   return getRow("bookings", bookingRow.id);
@@ -1275,6 +1280,43 @@ async function deleteMessagesForBooking(bookingId) {
   });
 }
 
+/**
+ * Every LIVE chat the user participates in (as driver or host), with its last
+ * message — one call the app can poll to raise "new message" notifications.
+ * Only bookings whose chat is still open are included.
+ */
+async function chatSummaryForUser(userId) {
+  await init();
+  // Bookings where I'm the driver…
+  const asDriver = (await allRows("bookings")).filter((b) => b.userId === userId);
+  // …and bookings on spots I host.
+  const mySpotIds = new Set(
+    (await allRows("spots")).filter((s) => s.hostId === userId).map((s) => s.id)
+  );
+  const asHost = (await allRows("bookings")).filter((b) => mySpotIds.has(b.spotId));
+
+  const summaries = [];
+  const seen = new Set();
+  for (const b of [...asDriver, ...asHost]) {
+    if (seen.has(b.id) || !isChatOpen(b)) continue;
+    seen.add(b.id);
+    const msgs = await listMessages(b.id);
+    if (msgs.length === 0) continue;
+    const last = msgs[msgs.length - 1];
+    const spot = await getRow("spots", b.spotId);
+    const sender = await getRow("users", last.senderId);
+    summaries.push({
+      bookingId: b.id,
+      spotTitle: spot ? spot.title : "Parking",
+      lastText: last.text || "",
+      lastAt: last.createdAt,
+      lastFrom: last.senderId,
+      lastFromName: (sender && sender.name) || "ParkingFriend user",
+    });
+  }
+  return summaries;
+}
+
 let lastChatPurgeAt = 0;
 
 /**
@@ -1371,6 +1413,7 @@ module.exports = {
   insertMessage,
   deleteMessagesForBooking,
   purgeDeadChats,
+  chatSummaryForUser,
   // seed helpers
   upsertUser,
   upsertSpot,
