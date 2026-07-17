@@ -17,6 +17,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../auth");
+const { pushToUserAsync } = require("../push");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -92,6 +93,19 @@ router.post("/:bookingId", ah(async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   await db.insertMessage(row);
+
+  // The other person's phone buzzes with the message — like any messenger.
+  const otherId = ctx.other && ctx.other.id;
+  if (otherId) {
+    const preview = row.text.length > 90 ? `${row.text.slice(0, 87)}…` : row.text;
+    pushToUserAsync(
+      otherId,
+      `💬 ${req.user.name}`,
+      preview,
+      { type: "chat", bookingId: ctx.booking.id, spotTitle: ctx.spot ? ctx.spot.title : "Parking" }
+    );
+  }
+
   res.status(201).json(db.toMessage(row));
 }));
 

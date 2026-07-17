@@ -1,5 +1,10 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { http } from "@/services/api/http";
+import { isApiEnabled } from "@/config/apiConfig";
+import { activeChat } from "@/services/activeChat";
 
 /**
  * Phone-panel notifications (the Android/iOS notification shade).
@@ -34,15 +39,26 @@ function setup(): Promise<boolean> {
   if (!ready) {
     ready = (async () => {
       try {
-        // Show alerts even while the app is foregrounded.
+        // Show alerts even while the app is foregrounded — EXCEPT for chat
+        // messages of the conversation the user is reading right now
+        // (messenger-standard behaviour).
         Notifications.setNotificationHandler({
-          handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-            shouldShowBanner: true,
-            shouldShowList: true,
-          }),
+          handleNotification: async (notification) => {
+            const data = notification?.request?.content?.data as
+              | { type?: string; bookingId?: string }
+              | undefined;
+            const suppress =
+              data?.type === "chat" &&
+              !!data?.bookingId &&
+              data.bookingId === activeChat.bookingId;
+            return {
+              shouldShowAlert: !suppress,
+              shouldPlaySound: !suppress,
+              shouldSetBadge: false,
+              shouldShowBanner: !suppress,
+              shouldShowList: !suppress,
+            };
+          },
         });
         if (Platform.OS === "android") {
           await Notifications.setNotificationChannelAsync("default", {
@@ -80,6 +96,61 @@ async function notify(title: string, body: string, data: PushData): Promise<void
   }
 }
 
+const PUSH_REGISTERED_KEY = "pm_push_registered";
+
+/**
+ * Registers this phone for SERVER push (the production channel: the server
+ * notifies FCM, FCM delivers instantly — even when the app is killed, and
+ * with zero polling). Gets the Expo push token and hands it to our API.
+ *
+ * Gracefully returns false when FCM credentials aren't configured in the
+ * build yet — the polling watcher then remains the delivery channel.
+ */
+async function registerForPush(): Promise<boolean> {
+  if (!isSupported || !isApiEnabled()) return false;
+  try {
+    const ok = await setup();
+    if (!ok) return false;
+    const projectId =
+      (Constants as any)?.expoConfig?.extra?.eas?.projectId ??
+      (Constants as any)?.easConfig?.projectId;
+    const tokenResult = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
+    const token = tokenResult?.data;
+    if (!token) throw new Error("no token");
+    await http.request("/api/me/push-token", { method: "POST", body: { token } });
+    await AsyncStorage.setItem(PUSH_REGISTERED_KEY, "true");
+    return true;
+  } catch {
+    try {
+      await AsyncStorage.setItem(PUSH_REGISTERED_KEY, "false");
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
+/** Whether this device successfully registered for server push. */
+async function isPushRegistered(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(PUSH_REGISTERED_KEY)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fires whenever a push ARRIVES while the app is foregrounded — used to sync
+ * the in-app feed/badges instantly instead of waiting for the next poll.
+ */
+function addReceivedListener(onReceive: () => void): () => void {
+  if (!isSupported) return () => {};
+  const sub = Notifications.addNotificationReceivedListener(() => onReceive());
+  return () => sub.remove();
+}
+
 /**
  * Registers a tap handler. Fires for taps while running AND for the cold-start
  * tap that launched the app. Returns an unsubscribe.
@@ -100,4 +171,11 @@ function addResponseListener(onData: (data: PushData) => void): () => void {
   return () => sub.remove();
 }
 
-export const pushService = { setup, notify, addResponseListener };
+export const pushService = {
+  setup,
+  notify,
+  addResponseListener,
+  registerForPush,
+  isPushRegistered,
+  addReceivedListener,
+};

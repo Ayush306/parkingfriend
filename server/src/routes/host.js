@@ -16,6 +16,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../auth");
+const { pushToUserAsync } = require("../push");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -149,7 +150,19 @@ router.delete("/listings/:id", ah(async (req, res) => {
   if (!spot || spot.removed || spot.hostId !== req.user.id) {
     return res.status(404).json({ error: "Listing not found" });
   }
+  // Who loses their upcoming parking? Tell each of them directly.
+  const affected = (await db.listBookingsForSpot(spot.id)).filter(
+    (b) => ["pending", "confirmed", "active"].includes(b.status) && !db.isBookingCompleted(b)
+  );
   const result = await db.removeListingWithCascade(spot.id);
+  for (const b of [...new Map(affected.map((x) => [x.userId, x])).values()]) {
+    pushToUserAsync(
+      b.userId,
+      "Booking cancelled",
+      `${spot.title} is no longer available. Tap to find another spot nearby.`,
+      { type: "booking_update", bookingId: b.id }
+    );
+  }
   res.json({ ok: true, ...result });
 }));
 
@@ -243,6 +256,18 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
   // COMPLETED parking day (see db.hostAccruals) — accepting a request earns
   // nothing until the parking actually happens.
   const updated = await db.respondToRequest(request, accept, null);
+
+  // Tell the DRIVER's phone the moment the host decides — no polling needed.
+  if (request.requesterId) {
+    pushToUserAsync(
+      request.requesterId,
+      accept ? "Parking accepted 🎉" : "Request declined",
+      accept
+        ? `${request.spotTitle} is yours — the host's number is in your Bookings.`
+        : `${request.spotTitle} isn't available. Try another spot nearby.`,
+      { type: "booking_update", bookingId: request.bookingId }
+    );
+  }
 
   res.json(db.toHostRequest(updated));
 }));

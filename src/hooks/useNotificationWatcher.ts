@@ -32,9 +32,19 @@ import { formatDate } from "@/utils/format";
  * snapshot silently (no notification storm for pre-existing data).
  */
 
+/** Polling cadence when polling is the ONLY delivery channel. */
 const POLL_MS = 30000;
+/**
+ * Cadence once SERVER PUSH is active: the server notifies the phone directly
+ * the instant something happens, so polling drops to a rare safety-net sweep
+ * (~12x fewer requests) that only reconciles the in-app feed.
+ */
+const POLL_MS_PUSH_ACTIVE = 6 * 60 * 1000;
 /** More OS pop-ups than this per sweep collapse into one summary. */
 const MAX_INDIVIDUAL_POPUPS = 3;
+
+/** True once this device registered for server push (set by the hook). */
+let pushDeliveryActive = false;
 
 interface SeenBookings {
   /** bookingId → last seen status */
@@ -243,6 +253,9 @@ async function sweep(isAlive: () => boolean = () => true): Promise<void> {
   // would just echo their own action back at them. Feed entries still record
   // everything; only the OS pop-ups are suppressed.
   if (!isApiEnabled()) return;
+  // Server push already showed these on the phone's panel — the sweep's job
+  // is only to reconcile the in-app feed. No duplicate local pop-ups.
+  if (pushDeliveryActive) return;
   if (popups.length > MAX_INDIVIDUAL_POPUPS) {
     await pushService.notify(
       "ParkingFriend updates",
@@ -266,6 +279,7 @@ export function useNotificationWatcher(): void {
     let disposed = false;
     let running = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let pollMs = POLL_MS;
 
     const tick = async () => {
       if (running || disposed) return; // never overlap sweeps
@@ -280,7 +294,7 @@ export function useNotificationWatcher(): void {
     };
 
     const start = () => {
-      if (timer == null) timer = setInterval(tick, POLL_MS);
+      if (timer == null) timer = setInterval(tick, pollMs);
     };
     const stop = () => {
       if (timer != null) {
@@ -291,6 +305,24 @@ export function useNotificationWatcher(): void {
 
     void pushService.setup(); // ask permission early, once
     void tick();
+
+    // PRODUCTION channel: register for server push. Once active, the server
+    // notifies this phone directly and polling backs off to a rare
+    // reconciliation sweep — this is how the big apps do it.
+    void pushService.registerForPush().then((registered) => {
+      if (disposed) return;
+      pushDeliveryActive = registered;
+      if (registered && timer != null) {
+        stop();
+        pollMs = POLL_MS_PUSH_ACTIVE;
+        start();
+      } else if (registered) {
+        pollMs = POLL_MS_PUSH_ACTIVE;
+      }
+    });
+
+    // A push arriving while the app is open syncs the in-app feed instantly.
+    const removeReceived = pushService.addReceivedListener(() => void tick());
     // "unknown"/null (cold start) counts as foreground — only an explicit
     // background/inactive state holds polling back.
     if (AppState.currentState !== "background" && AppState.currentState !== "inactive") start();
@@ -308,6 +340,7 @@ export function useNotificationWatcher(): void {
       disposed = true;
       stop();
       sub.remove();
+      removeReceived();
     };
   }, [isAuthed]);
 }

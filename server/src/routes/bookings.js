@@ -19,6 +19,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../auth");
+const { pushToUserAsync } = require("../push");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -182,6 +183,15 @@ router.post("/", ah(async (req, res) => {
     status: "pending",
   });
 
+  // Tell the host's PHONE right now — no polling needed (works app-killed
+  // once FCM credentials are configured; harmless no-op before that).
+  pushToUserAsync(
+    spotRow.hostId,
+    "New parking request 🚗",
+    `${req.user.name} wants to park at ${spotRow.title}. Tap to respond.`,
+    { type: "host_request" }
+  );
+
   res.status(201).json(await db.toBooking(booking));
 }));
 
@@ -206,6 +216,18 @@ router.post("/:id/cancel", ah(async (req, res) => {
     ? req.body.reason.trim().slice(0, 300)
     : null;
   const updated = await db.cancelBookingWithRequest(booking, reason);
+
+  // The host hears immediately that the slot is free again.
+  const spotRow = await db.getSpotRow(booking.spotId);
+  if (spotRow) {
+    pushToUserAsync(
+      spotRow.hostId,
+      "Driver cancelled",
+      `${req.user.name} won't be parking at ${spotRow.title}. The slot is free again.`,
+      { type: "host_request", filter: "All" }
+    );
+  }
+
   res.json(await db.toBooking(updated));
 }));
 

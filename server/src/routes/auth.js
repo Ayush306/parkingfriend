@@ -89,4 +89,18 @@ router.patch("/me", requireAuth, ah(async (req, res) => {
   res.json(db.toUser(updated));
 }));
 
+/**
+ * POST /api/me/push-token {token} — register (or clear with null/"") this
+ * device's Expo push token so the server can notify the phone directly.
+ */
+router.post("/me/push-token", requireAuth, ah(async (req, res) => {
+  const token = (req.body || {}).token;
+  const clean = typeof token === "string" && token.trim() ? token.trim() : null;
+  if (clean && !/^(ExponentPushToken|ExpoPushToken)\[.+\]$/.test(clean)) {
+    return res.status(400).json({ error: "That doesn't look like an Expo push token" });
+  }
+  await db.savePushToken(req.user.id, clean);
+  res.json({ ok: true, registered: !!clean });
+}));
+
 module.exports = router;

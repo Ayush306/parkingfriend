@@ -52,7 +52,7 @@ const COLUMNS = {
   users: [
     "id", "phone", "name", "email", "avatar", "rating", "reviewsCount",
     "driverRating", "driverRatingCount",
-    "verified", "responseTime", "createdAt",
+    "verified", "responseTime", "pushToken", "createdAt",
   ],
   spots: [
     "id", "hostId", "title", "type", "vehicleTypes", "capacity", "address", "area", "city",
@@ -103,6 +103,7 @@ const DDL = [
     driverRatingCount INTEGER DEFAULT 0,
     verified INTEGER DEFAULT 0,
     responseTime TEXT,
+    pushToken TEXT,
     createdAt TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS spots (
@@ -235,6 +236,8 @@ const MIGRATIONS = [
   // Link a request back to the driver who made it, so the host can see that
   // driver's rating on the incoming request and rate them after the parking.
   { table: "host_requests", column: "requesterId", ddl: "ALTER TABLE host_requests ADD COLUMN requesterId TEXT" },
+  // Expo push token — lets the server notify this user's phone directly.
+  { table: "users", column: "pushToken", ddl: "ALTER TABLE users ADD COLUMN pushToken TEXT" },
 ];
 
 /**
@@ -777,6 +780,11 @@ async function createUser({ phone, name, email, avatar }) {
   return insertRow("users", row);
 }
 
+/** Stores (or clears) the user's Expo push token. */
+async function savePushToken(id, token) {
+  return updateRow("users", id, { pushToken: token || null });
+}
+
 /** Update a user's editable profile fields (name / email / avatar). */
 async function updateUserProfile(id, patch) {
   const clean = {};
@@ -869,6 +877,11 @@ async function incrementSpotViews(id) {
 }
 
 /* ───────────────────────── repository: bookings ───────────────────────── */
+
+async function listBookingsForSpot(spotId) {
+  const bookings = await allRows("bookings");
+  return bookings.filter((b) => b.spotId === spotId);
+}
 
 async function listBookingsByUser(userId) {
   const bookings = await allRows("bookings");
@@ -1374,6 +1387,7 @@ module.exports = {
   findUserByPhone,
   createUser,
   updateUserProfile,
+  savePushToken,
   // spots
   listSpots,
   getSpotRow,
@@ -1383,6 +1397,7 @@ module.exports = {
   incrementSpotViews,
   countActiveBookings,
   // bookings
+  listBookingsForSpot,
   listBookingsByUser,
   getBookingRow,
   insertBooking,
