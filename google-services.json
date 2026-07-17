@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "243277991286",
+    "project_id": "parkingfriend-64152",
+    "storage_bucket": "parkingfriend-64152.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:243277991286:android:4aa373094f3f7becc73e57",
+        "android_client_info": {
+          "package_name": "com.parkingfriend.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdgLc9jqNSAwtnKyo2O3uODaw6K6vIiJM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
