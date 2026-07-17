@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -61,16 +61,36 @@ export default function Chat() {
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Messages WE sent that the server list may not include yet. Kept separate
+  // from the fetched thread and merged (deduped by id) at render time, so a
+  // background poll whose response was read BEFORE our insert can never make
+  // a just-sent bubble vanish — and a poll that does include it can't
+  // duplicate it either.
+  const [localEcho, setLocalEcho] = useState<ChatMessage[]>([]);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
-  const open = thread.data?.open ?? true;
+  // No composer until the thread actually loaded — otherwise a failed load
+  // would show an error AND a working input at the same time.
+  const open = thread.data ? thread.data.open : false;
   const other = thread.data?.with;
 
-  // Inverted list wants newest first.
-  const messages = useMemo(
-    () => [...(thread.data?.messages ?? [])].reverse(),
-    [thread.data?.messages]
-  );
+  // Inverted list wants newest first; server list + not-yet-synced echoes.
+  const messages = useMemo(() => {
+    const server = thread.data?.messages ?? [];
+    const ids = new Set(server.map((m) => m.id));
+    const merged = [...server, ...localEcho.filter((e) => !ids.has(e.id))];
+    return merged.reverse();
+  }, [thread.data?.messages, localEcho]);
+
+  // Once the server list contains an echoed message, drop the echo.
+  useEffect(() => {
+    const server = thread.data?.messages;
+    if (!server || localEcho.length === 0) return;
+    const ids = new Set(server.map((m) => m.id));
+    if (localEcho.some((e) => ids.has(e.id))) {
+      setLocalEcho((prev) => prev.filter((e) => !ids.has(e.id)));
+    }
+  }, [thread.data?.messages, localEcho]);
 
   const sendNow = useCallback(async () => {
     const value = text.trim();
@@ -80,12 +100,8 @@ export default function Chat() {
       const sent = await chatService.send(bookingId, value);
       setText("");
       haptics.light();
-      // Show instantly; the next poll reconciles with the server.
-      thread.setData((prev) =>
-        prev
-          ? { ...prev, messages: [...prev.messages, sent] }
-          : { open: true, with: { name: "..." }, messages: [sent] }
-      );
+      // Show instantly; polls merge (never replace) so it can't flicker away.
+      setLocalEcho((prev) => [...prev, sent]);
     } catch (e: any) {
       haptics.error();
       toast.show(e?.message ?? "Couldn't send the message.", "error");
@@ -238,8 +254,8 @@ export default function Chat() {
           />
         )}
 
-        {/* ── Input bar / closed notice ── */}
-        {open ? (
+        {/* ── Input bar / closed notice (nothing until the thread loads) ── */}
+        {!thread.data ? null : open ? (
           <View
             style={[
               styles.inputBar,
