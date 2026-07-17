@@ -226,7 +226,11 @@ export default function Notifications() {
         }
       } else if (item.id.startsWith("evt_req_")) {
         haptics.light();
-        navigation.navigate("HostRequests");
+        // A cancelled-request event lives under the All filter — land there,
+        // not on a "No pending requests" empty state.
+        navigation.navigate("HostRequests", {
+          filter: item.id.endsWith("_cancelled") ? "All" : "Pending",
+        });
       } else if (item.id.startsWith("evt_bk_")) {
         haptics.light();
         navigation.navigate("Main", { screen: "Bookings" });

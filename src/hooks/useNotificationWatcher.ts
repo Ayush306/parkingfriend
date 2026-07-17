@@ -41,12 +41,15 @@ interface SeenBookings {
   [bookingId: string]: string;
 }
 
-async function sweep(): Promise<void> {
+async function sweep(isAlive: () => boolean = () => true): Promise<void> {
   const [requests, bookings, chats] = await Promise.all([
     hostService.getRequests().catch(() => null),
     bookingService.list().catch(() => null),
     chatService.summary().catch(() => null),
   ]);
+  // The hook unmounted (e.g. logout wiped the snapshots) while we were
+  // fetching — writing now would resurrect the previous account's state.
+  if (!isAlive()) return;
 
   type Popup = { title: string; body: string; data: Parameters<typeof pushService.notify>[2] };
   const popups: Popup[] = [];
@@ -64,8 +67,11 @@ async function sweep(): Promise<void> {
       null
     );
     const firstRun = rawSeen === null;
+    // Old-format migration: adopt each id's CURRENT server status, so the
+    // migration sweep itself can never fire a stale transition notification.
+    const currentStatus = new Map(requests.map((r) => [r.id, r.status] as const));
     const prevStatus: Record<string, string> = Array.isArray(rawSeen)
-      ? Object.fromEntries(rawSeen.map((id) => [id, "seen"]))
+      ? Object.fromEntries(rawSeen.map((id) => [id, currentStatus.get(id) ?? "seen"]))
       : rawSeen ?? {};
 
     if (!firstRun) {
@@ -102,7 +108,7 @@ async function sweep(): Promise<void> {
           popups.push({
             title: "Driver cancelled",
             body: `${r.requesterName} won't be parking at ${r.spotTitle}. The slot is free again.`,
-            data: { type: "host_request" },
+            data: { type: "host_request", filter: "All" },
           });
         }
       }
@@ -191,9 +197,12 @@ async function sweep(): Promise<void> {
   }
 
   /* ── CHAT: a new message from the other person ── */
-  if (chats) {
-    const session = await authService.getSession().catch(() => null);
-    const myId = session?.id;
+  const session = chats ? await authService.getSession().catch(() => null) : null;
+  // No session id = we can't tell whose messages these are. Skip the whole
+  // block WITHOUT persisting, so the messages notify on the next sweep
+  // instead of being silently marked seen.
+  if (chats && session?.id) {
+    const myId = session.id;
     const rawChats = await readPersisted<Record<string, string> | null>(
       STORAGE_KEYS.seenChats,
       null
@@ -205,7 +214,7 @@ async function sweep(): Promise<void> {
     for (const c of chats) {
       nextAt[c.bookingId] = c.lastAt;
       if (firstRunChats) continue;
-      if (!myId || c.lastFrom === myId) continue; // my own message
+      if (c.lastFrom === myId) continue; // my own message
       const seenAt = prevAt[c.bookingId];
       if (seenAt !== undefined && c.lastAt <= seenAt) continue; // nothing new
       // The user is reading this exact conversation right now — no popup,
@@ -262,7 +271,7 @@ export function useNotificationWatcher(): void {
       if (running || disposed) return; // never overlap sweeps
       running = true;
       try {
-        await sweep();
+        await sweep(() => !disposed);
       } catch {
         // A failed sweep just waits for the next one.
       } finally {

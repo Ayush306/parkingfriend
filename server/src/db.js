@@ -840,7 +840,9 @@ async function removeListingWithCascade(spotId) {
   );
   stmts.push(
     {
-      sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status = 'pending'",
+      // Host removed the listing = host-initiated: retire BOTH pending and
+      // accepted requests, so no "Confirmed guest" ghost survives the removal.
+      sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status IN ('pending', 'accepted')",
       args: [spotId],
     },
     { sql: "UPDATE spots SET removed = 1, available = 0 WHERE id = ?", args: [spotId] }

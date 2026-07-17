@@ -259,4 +259,6 @@ export interface HostRequest {
   status: "pending" | "accepted" | "declined" | "cancelled";
   /** Links back to the driver's booking so accept/decline updates it. */
   bookingId?: string;
+  /** Last day of the parking (multi-day bookings) — from the linked booking. */
+  endDate?: string;
 }

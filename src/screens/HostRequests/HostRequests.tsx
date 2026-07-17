@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 import { Screen } from "@/components/ui/Screen";
 import { Header } from "@/components/ui/Header";
@@ -18,6 +18,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { NoBookings } from "@/components/illustrations/NoBookings";
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { useToast } from "@/components/ui/Toast";
 import { haptics } from "@/utils/haptics";
 import { formatDate } from "@/utils/format";
@@ -59,8 +60,13 @@ function RequestCard({ request, index, busy, onRespond, onMessage }: RequestCard
   const toast = useToast();
   const isPending = request.status === "pending";
   const isAccepted = request.status === "accepted";
-  // Chat is there for the whole parking lifespan — pending AND accepted.
-  const canChat = !!request.bookingId && (isPending || isAccepted);
+  // Chat is there for the whole parking lifespan — pending AND accepted —
+  // but not after the parking's last day has passed (the chat has closed).
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayYmd = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const stillLive = String(request.endDate ?? request.date) >= todayYmd;
+  const canChat = !!request.bookingId && (isPending || (isAccepted && stillLive));
 
   const callRequester = () => {
     if (!request.requesterPhone) return;
@@ -290,15 +296,25 @@ function RequestCard({ request, index, busy, onRespond, onMessage }: RequestCard
 
 export default function HostRequests() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const toast = useToast();
   const { spacing } = useTheme();
 
-  const { data, loading, error, refetch, setData } = useAsync<HostRequest[]>(
+  const { data, loading, error, refetch, refetchSilent, setData } = useAsync<HostRequest[]>(
     () => hostService.getRequests(),
     []
   );
+  // Stay live: refresh on focus + a gentle 30s poll while open, so a driver
+  // cancelling (or a new request) shows up without leaving the screen.
+  useLiveRefresh(refetchSilent, 30000);
+
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState<string>(FILTERS[0]);
+  // A notification about a cancelled/accepted request can land directly on
+  // the right filter (e.g. "Driver cancelled" opens All, where it's visible).
+  const initialFilter: string = (route.params as any)?.filter ?? FILTERS[0];
+  const [filter, setFilter] = useState<string>(
+    (FILTERS as readonly string[]).includes(initialFilter) ? initialFilter : FILTERS[0]
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const onRefresh = async () => {
@@ -342,6 +358,9 @@ export default function HostRequests() {
     } catch (e: any) {
       haptics.error();
       toast.show(e?.message ?? "Couldn't update the request.", "error");
+      // The server may have just told us the request changed under us (e.g.
+      // the driver withdrew) — re-fetch so the card reflects reality.
+      refetchSilent();
     } finally {
       setBusyId(null);
     }

@@ -211,7 +211,17 @@ export default function Bookings() {
                 ) : null}
               </View>
             </View>
-            <Badge label={STATUS_LABEL[effectiveStatus(item)]} tone={STATUS_TONE[effectiveStatus(item)]} size="sm" />
+            <Badge
+              label={
+                // Your OWN cancel (it carries your reason) reads "Cancelled";
+                // only a host's refusal reads "Declined".
+                effectiveStatus(item) === "cancelled" && item.cancelReason
+                  ? "Cancelled"
+                  : STATUS_LABEL[effectiveStatus(item)]
+              }
+              tone={STATUS_TONE[effectiveStatus(item)]}
+              size="sm"
+            />
           </View>
 
           <View style={[styles.rowBetween, { marginTop: spacing.md }]}>
@@ -286,8 +296,9 @@ export default function Bookings() {
             </View>
           ) : null}
 
-          {/* Cancel anytime while pending or accepted (asks for a reason). */}
-          {item.status === "pending" || item.status === "confirmed" ? (
+          {/* Cancel anytime while pending or accepted (asks for a reason).
+              effectiveStatus, not raw: a completed parking can't be cancelled. */}
+          {effectiveStatus(item) === "pending" || effectiveStatus(item) === "confirmed" ? (
             <Pressable
               onPress={() => openCancel(item)}
               accessibilityRole="button"

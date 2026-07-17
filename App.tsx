@@ -67,7 +67,9 @@ function handleNotificationTap(data: PushData, attempt = 0) {
     return;
   }
   if (data.type === "host_request") {
-    navigationRef.navigate("HostRequests");
+    navigationRef.navigate("HostRequests", {
+      filter: data.filter === "All" ? "All" : undefined,
+    });
   } else if (data.type === "chat" && data.bookingId) {
     navigationRef.navigate("Chat", {
       bookingId: String(data.bookingId),

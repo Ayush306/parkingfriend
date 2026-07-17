@@ -45,7 +45,7 @@ export type RootStackParamList = {
   Favorites: undefined;
   Notifications: undefined;
   ListSpace: undefined;
-  HostRequests: undefined;
+  HostRequests: { filter?: "Pending" | "Accepted" | "All" } | undefined;
   Chat: { bookingId: string; spotTitle?: string };
 };
 

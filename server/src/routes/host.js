@@ -155,18 +155,46 @@ router.delete("/listings/:id", ah(async (req, res) => {
 
 router.get("/requests", ah(async (req, res) => {
   const rows = await db.listRequestsByHost(req.user.id);
-  // Attach each requester's DRIVER rating so the host sees who they're letting
-  // in before accepting. One bulk lookup for all requesters, not one per row.
+  // Bulk lookups (no per-row queries): requesters for ratings, bookings for
+  // reconciliation + the parking's end date.
   const requesters = await db.getRowsByIds("users", rows.map((row) => row.requesterId));
-  const out = rows.map((row) => {
+  const bookings = await db.getRowsByIds("bookings", rows.map((row) => row.bookingId));
+
+  const out = [];
+  for (const row of rows) {
+    const booking = row.bookingId ? bookings.get(String(row.bookingId)) : null;
+
+    // Self-heal: a live-looking request whose booking the driver already
+    // cancelled (data from before the "cancelled" status existed, or a race)
+    // flips to "cancelled" here, so ghost guests never reach the app.
+    if (
+      (row.status === "pending" || row.status === "accepted") &&
+      booking && booking.status === "cancelled"
+    ) {
+      await db.updateRequest(row.id, { status: "cancelled" });
+      row.status = "cancelled";
+    }
+
     const r = db.toHostRequest(row);
+
+    // The parking's LAST day — lets the app keep a multi-day guest visible
+    // (and the chat button honest) until the parking actually ends.
+    if (booking && booking.date) {
+      const days = Math.max(1, Math.ceil((Number(booking.durationHours) || 0) / 24));
+      const d = new Date(`${booking.date}T00:00:00Z`);
+      if (!isNaN(d.getTime())) {
+        d.setUTCDate(d.getUTCDate() + days - 1);
+        r.endDate = d.toISOString().slice(0, 10);
+      }
+    }
+
     const u = row.requesterId ? requesters.get(String(row.requesterId)) : null;
     if (u) {
       r.requesterRating = Math.round((Number(u.driverRating) || 0) * 10) / 10;
       r.requesterRatingCount = Number(u.driverRatingCount) || 0;
     }
-    return r;
-  });
+    out.push(r);
+  }
   res.json(out);
 }));
 
@@ -181,11 +209,12 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
   }
 
   // A withdrawn booking must never be resurrected: if the driver already
-  // cancelled, retire the request and tell the host instead of accepting.
+  // cancelled, retire the request as "cancelled" (the DRIVER's action — not
+  // "declined", which would read as the host's) and tell the host.
   if (accept && request.bookingId) {
     const booking = await db.getBookingRow(request.bookingId);
     if (booking && booking.status === "cancelled") {
-      await db.updateRequest(request.id, { status: "declined" });
+      await db.updateRequest(request.id, { status: "cancelled" });
       return res
         .status(409)
         .json({ error: "The driver has withdrawn this request." });

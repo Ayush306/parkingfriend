@@ -65,7 +65,9 @@ export default function Post() {
   const pad2 = (n: number) => String(n).padStart(2, "0");
   const todayYmd = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
   const confirmedGuests = (requests.data ?? []).filter(
-    (r) => r.status === "accepted" && String(r.date) >= todayYmd
+    // endDate covers multi-day parkings: the guest stays visible until the
+    // LAST day of their booking has passed, not just the first.
+    (r) => r.status === "accepted" && String(r.endDate ?? r.date) >= todayYmd
   );
 
   const onRefresh = useCallback(async () => {
@@ -389,7 +391,7 @@ export default function Post() {
                 </Text>
               </View>
             </View>
-            {confirmedGuests.slice(0, 6).map((g) => (
+            {confirmedGuests.map((g) => (
               <View
                 key={g.id}
                 style={[styles.requestCard, { backgroundColor: colors.surface, borderColor: colors.success + "55", borderRadius: radius.lg, marginTop: spacing.sm, ...shadows.sm }]}

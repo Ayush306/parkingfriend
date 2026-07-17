@@ -19,6 +19,8 @@ export interface PushData {
   type: "host_request" | "booking_update" | "rate" | "chat";
   bookingId?: string;
   spotTitle?: string;
+  /** Which HostRequests filter a host_request tap should land on. */
+  filter?: "Pending" | "Accepted" | "All";
   [key: string]: unknown;
 }
 

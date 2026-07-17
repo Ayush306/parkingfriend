@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/theme/ThemeContext";
@@ -61,12 +61,16 @@ export default function Chat() {
   useLiveRefresh(thread.refetchSilent, 10000);
 
   // Tell the watcher this conversation is on screen — no popups for it.
-  useEffect(() => {
-    activeChat.bookingId = bookingId;
-    return () => {
-      if (activeChat.bookingId === bookingId) activeChat.bookingId = null;
-    };
-  }, [bookingId]);
+  // FOCUS-scoped, not mount-scoped: if another screen is pushed on top, the
+  // user is no longer reading this chat and must get notified again.
+  useFocusEffect(
+    useCallback(() => {
+      activeChat.bookingId = bookingId;
+      return () => {
+        if (activeChat.bookingId === bookingId) activeChat.bookingId = null;
+      };
+    }, [bookingId])
+  );
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
