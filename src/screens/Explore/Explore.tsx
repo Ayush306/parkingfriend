@@ -16,6 +16,8 @@ import { MotiView } from "moti";
 import { useTheme } from "@/theme/ThemeContext";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useUserLocation } from "@/hooks/useUserLocation";
+import { distanceMeters } from "@/utils/geo";
 import { useFavorites } from "@/hooks/useFavorites";
 import { haptics } from "@/utils/haptics";
 import { spotService, type SpotFilters } from "@/services/spotService";
@@ -80,11 +82,18 @@ export default function Explore() {
     [debouncedQuery]
   );
 
-  // "nearby" is applied client-side so the map + list stay in sync.
+  // "nearby" = within 5 km of where the user ACTUALLY is (real GPS). When the
+  // location isn't available the filter is a no-op rather than lying.
+  const userLoc = useUserLocation();
   const spots = useMemo(() => {
     const list = results.data ?? [];
-    return filters.nearby ? list.filter((s) => s.distanceMeters <= 500) : list;
-  }, [results.data, filters.nearby]);
+    if (!filters.nearby || !userLoc) return list;
+    return list.filter(
+      (s) =>
+        distanceMeters(userLoc.latitude, userLoc.longitude, s.latitude, s.longitude) <=
+        5000
+    );
+  }, [results.data, filters.nearby, userLoc]);
 
   const pins = useMemo<MapPin[]>(() => {
     if (spots.length === 0) return [{ x: 0.5, y: 0.5, primary: true }];

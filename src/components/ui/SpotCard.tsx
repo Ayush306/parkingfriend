@@ -17,6 +17,8 @@ import Animated, {
 import { useTheme } from "@/theme/ThemeContext";
 import { haptics } from "@/utils/haptics";
 import { formatDistance } from "@/utils/format";
+import { distanceMeters } from "@/utils/geo";
+import { useUserLocation } from "@/hooks/useUserLocation";
 import type { ParkingSpot } from "@/models/types";
 import { PriceTag } from "@/components/ui/PriceTag";
 import { RatingStars } from "@/components/ui/RatingStars";
@@ -74,6 +76,20 @@ export function SpotCard({
   const imageHeight = isFeatured ? 132 : 116;
   const cover = spot.images?.[0];
 
+  // Real distance from the user's CURRENT GPS position (like Google Maps) —
+  // shown only when we actually know where the user is.
+  const userLoc = useUserLocation();
+  const awayLabel = userLoc
+    ? formatDistance(
+        distanceMeters(
+          userLoc.latitude,
+          userLoc.longitude,
+          spot.latitude,
+          spot.longitude
+        )
+      )
+    : null;
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
@@ -94,7 +110,9 @@ export function SpotCard({
       onPressIn={() => (scale.value = withTiming(0.98, { duration: 90 }))}
       onPressOut={() => (scale.value = withTiming(1, { duration: 130 }))}
       accessibilityRole="button"
-      accessibilityLabel={`${spot.title}, ${formatDistance(spot.distanceMeters)} away`}
+      accessibilityLabel={
+        awayLabel ? `${spot.title}, ${awayLabel} away` : spot.title
+      }
       style={[
         styles.base,
         shadows.md,
@@ -128,30 +146,32 @@ export function SpotCard({
           />
         )}
 
-        {/* distance chip */}
-        <View
-          style={[
-            styles.distancePill,
-            {
-              backgroundColor: colors.overlay,
-              borderRadius: radius.pill,
-              paddingHorizontal: spacing.sm + 2,
-              paddingVertical: 4,
-            },
-          ]}
-        >
-          <Ionicons name="navigate" size={11} color={colors.white} />
-          <Text
-            style={{
-              marginLeft: 4,
-              color: colors.white,
-              fontFamily: typography.fonts.bodySemi,
-              fontSize: typography.sizes.xs,
-            }}
+        {/* REAL distance from the user's current location (hidden without GPS) */}
+        {awayLabel ? (
+          <View
+            style={[
+              styles.distancePill,
+              {
+                backgroundColor: colors.overlay,
+                borderRadius: radius.pill,
+                paddingHorizontal: spacing.sm + 2,
+                paddingVertical: 4,
+              },
+            ]}
           >
-            {formatDistance(spot.distanceMeters)}
-          </Text>
-        </View>
+            <Ionicons name="navigate" size={11} color={colors.white} />
+            <Text
+              style={{
+                marginLeft: 4,
+                color: colors.white,
+                fontFamily: typography.fonts.bodySemi,
+                fontSize: typography.sizes.xs,
+              }}
+            >
+              {awayLabel}
+            </Text>
+          </View>
+        ) : null}
 
         {/* favorite heart */}
         {onToggleFavorite ? (

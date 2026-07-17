@@ -12,6 +12,7 @@ import { spotService } from "@/services/spotService";
 import { bookingService } from "@/services/bookingService";
 import { placesService } from "@/services/placesService";
 import { distanceMeters, formatAway } from "@/utils/geo";
+import { useUserLocation } from "@/hooks/useUserLocation";
 import { formatCurrency } from "@/utils/format";
 import { haptics } from "@/utils/haptics";
 import type { ParkingSpot } from "@/models/types";
@@ -37,6 +38,7 @@ export default function SearchResults() {
   const route = useRoute<any>();
   const { colors, spacing, typography, radius, shadows } = useTheme();
   const { user } = useAuth();
+  const userLoc = useUserLocation();
   const toast = useToast();
 
   const query: string = (route.params as any)?.query ?? "";
@@ -238,6 +240,21 @@ export default function SearchResults() {
                           ? ` · Listed by ${item.host.name}`
                           : ""}
                       </Text>
+                      {/* Real distance from the user's CURRENT position */}
+                      {userLoc ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
+                          <Ionicons name="navigate-outline" size={11} color={colors.primary} />
+                          <Text
+                            numberOfLines={1}
+                            style={{ marginLeft: 3, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}
+                          >
+                            {formatAway(
+                              distanceMeters(userLoc.latitude, userLoc.longitude, item.latitude, item.longitude)
+                            )}{" "}
+                            from your location
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text
                       style={{ color: colors.primary, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.md }}

@@ -23,7 +23,9 @@ import { useAuth } from "@/context/AuthContext";
 import { haptics } from "@/utils/haptics";
 import { spotService } from "@/services/spotService";
 import { bookingService } from "@/services/bookingService";
-import { formatDistance, formatTime, formatDate } from "@/utils/format";
+import { formatTime, formatDate } from "@/utils/format";
+import { distanceMeters, formatAway } from "@/utils/geo";
+import { useUserLocation } from "@/hooks/useUserLocation";
 import { openDirections } from "@/utils/directions";
 import { useToast } from "@/components/ui/Toast";
 import type { ParkingSpot, SpotReview } from "@/models/types";
@@ -85,6 +87,7 @@ export default function SpotDetail() {
   const { colors, spacing, typography, radius, shadows } = useTheme();
   const { isFavorite, toggle } = useFavorites();
   const { user } = useAuth();
+  const userLoc = useUserLocation();
   const toast = useToast();
 
   const spotId: string = (route.params as any)?.id ?? "";
@@ -347,7 +350,7 @@ export default function SpotDetail() {
             </View>
           </View>
 
-          {/* area + distance */}
+          {/* area + REAL distance from the user's current location */}
           <View style={[styles.metaRow, { marginTop: spacing.sm }]}>
             <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
             <Text
@@ -360,11 +363,32 @@ export default function SpotDetail() {
               }}
             >
               {[spot.area, spot.city].filter(Boolean).join(", ")}
-              {spot.nearStation
-                ? ` · ${formatDistance(spot.distanceMeters)} from ${spot.nearStation}`
-                : ""}
             </Text>
           </View>
+          {userLoc ? (
+            <View style={[styles.metaRow, { marginTop: 4 }]}>
+              <Ionicons name="navigate-outline" size={15} color={colors.primary} />
+              <Text
+                style={{
+                  flex: 1,
+                  marginLeft: 6,
+                  color: colors.primary,
+                  fontFamily: typography.fonts.bodySemi,
+                  fontSize: typography.sizes.sm,
+                }}
+              >
+                {formatAway(
+                  distanceMeters(
+                    userLoc.latitude,
+                    userLoc.longitude,
+                    spot.latitude,
+                    spot.longitude
+                  )
+                )}{" "}
+                from your location
+              </Text>
+            </View>
+          ) : null}
 
           <View style={{ marginTop: spacing.sm }}>
             {spot.reviewsCount > 0 ? (

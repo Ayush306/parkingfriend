@@ -31,6 +31,8 @@ import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { bookingService } from "@/services/bookingService";
 import type { Booking } from "@/models/types";
 import { formatCurrency, formatDate } from "@/utils/format";
+import { distanceMeters, formatAway } from "@/utils/geo";
+import { useUserLocation } from "@/hooks/useUserLocation";
 import { haptics } from "@/utils/haptics";
 
 const TABS = ["Requested", "Accepted", "Past"] as const;
@@ -93,6 +95,7 @@ export default function Bookings() {
   const navigation = useNavigation<any>();
   const { colors, spacing, typography, radius } = useTheme();
   const toast = useToast();
+  const userLoc = useUserLocation();
 
   const { data, loading, error, refetch, refetchSilent } = useAsync<Booking[]>(
     () => bookingService.list(),
@@ -190,6 +193,21 @@ export default function Bookings() {
                   {formatDate(item.date, { withWeekday: true, withYear: false })}
                   {item.spot.area ? ` · ${item.spot.area}` : ""}
                 </Text>
+                {/* Live distance from where the user is right now */}
+                {userLoc && item.spot.latitude ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
+                    <Ionicons name="navigate-outline" size={11} color={colors.primary} />
+                    <Text
+                      numberOfLines={1}
+                      style={{ marginLeft: 3, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}
+                    >
+                      {formatAway(
+                        distanceMeters(userLoc.latitude, userLoc.longitude, item.spot.latitude, item.spot.longitude)
+                      )}{" "}
+                      from your location
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
             <Badge label={STATUS_LABEL[effectiveStatus(item)]} tone={STATUS_TONE[effectiveStatus(item)]} size="sm" />
@@ -252,7 +270,7 @@ export default function Bookings() {
         </Card>
       </MotiView>
     ),
-    [colors, spacing, typography, radius, callHost, openCancel]
+    [colors, spacing, typography, radius, callHost, openCancel, userLoc]
   );
 
   return (
