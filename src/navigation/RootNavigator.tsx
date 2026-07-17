@@ -28,6 +28,7 @@ import Favorites from "@/screens/Favorites/Favorites";
 import Notifications from "@/screens/Notifications/Notifications";
 import ListSpace from "@/screens/ListSpace/ListSpace";
 import HostRequests from "@/screens/HostRequests/HostRequests";
+import Chat from "@/screens/Chat/Chat";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -80,6 +81,7 @@ export function RootNavigator() {
       <Stack.Screen name="Notifications" component={Notifications} />
       <Stack.Screen name="ListSpace" component={ListSpace} />
       <Stack.Screen name="HostRequests" component={HostRequests} />
+      <Stack.Screen name="Chat" component={Chat} />
     </Stack.Navigator>
   );
 }

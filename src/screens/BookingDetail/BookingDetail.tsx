@@ -354,13 +354,33 @@ export default function BookingDetail() {
           {host.verified ? <Ionicons name="shield-checkmark" size={20} color={colors.primary} /> : null}
         </View>
 
+        {/* Chat needs no unlock — it's open for the whole parking lifespan. */}
+        {!isCompleted && booking.status !== "cancelled" ? (
+          <Button
+            label="Message host"
+            variant="outline"
+            onPress={() => {
+              haptics.light();
+              navigation.navigate("Chat", {
+                bookingId: booking.id,
+                spotTitle: booking.spot.title,
+              });
+            }}
+            iconLeft={
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+            }
+            style={{ marginTop: spacing.lg }}
+            fullWidth
+          />
+        ) : null}
+
         {contactUnlocked && booking.hostPhone ? (
           <Button
             label={`Call host · ${booking.hostPhone}`}
             variant="outline"
             onPress={callHost}
             iconLeft={<Ionicons name="call" size={16} color={colors.primary} />}
-            style={{ marginTop: spacing.lg }}
+            style={{ marginTop: spacing.md }}
             fullWidth
           />
         ) : (

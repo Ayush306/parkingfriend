@@ -50,13 +50,16 @@ interface RequestCardProps {
   index: number;
   busy: boolean;
   onRespond: (accept: boolean) => void;
+  onMessage: () => void;
 }
 
-function RequestCard({ request, index, busy, onRespond }: RequestCardProps) {
+function RequestCard({ request, index, busy, onRespond, onMessage }: RequestCardProps) {
   const { colors, spacing, typography, radius } = useTheme();
   const toast = useToast();
   const isPending = request.status === "pending";
   const isAccepted = request.status === "accepted";
+  // Chat is there for the whole parking lifespan — pending AND accepted.
+  const canChat = !!request.bookingId && (isPending || isAccepted);
 
   const callRequester = () => {
     if (!request.requesterPhone) return;
@@ -141,9 +144,39 @@ function RequestCard({ request, index, busy, onRespond }: RequestCardProps) {
           </Text>
         </View>
 
+        {/* Chat with the driver — available before AND after accepting */}
+        {canChat ? (
+          <Pressable
+            onPress={onMessage}
+            accessibilityRole="button"
+            accessibilityLabel={`Message ${request.requesterName}`}
+            style={({ pressed }) => [
+              styles.chatBtn,
+              {
+                borderColor: colors.primary,
+                borderRadius: radius.md,
+                marginTop: spacing.lg,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+            <Text
+              style={{
+                marginLeft: 7,
+                color: colors.primary,
+                fontFamily: typography.fonts.bodySemi,
+                fontSize: typography.sizes.sm,
+              }}
+            >
+              Message {request.requesterName.split(" ")[0]}
+            </Text>
+          </Pressable>
+        ) : null}
+
         {/* Actions / resolved state */}
         {isPending ? (
-          <View style={[styles.actions, { marginTop: spacing.lg }]}>
+          <View style={[styles.actions, { marginTop: spacing.md }]}>
             <View style={{ flex: 1 }}>
               <Button
                 label="Decline"
@@ -362,6 +395,13 @@ export default function HostRequests() {
               index={i}
               busy={busyId === req.id}
               onRespond={(accept) => handleRespond(req, accept)}
+              onMessage={() => {
+                haptics.light();
+                navigation.navigate("Chat", {
+                  bookingId: req.bookingId,
+                  spotTitle: req.spotTitle,
+                });
+              }}
             />
           ))}
         </View>
@@ -404,5 +444,12 @@ const styles = StyleSheet.create({
   declinedRow: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  chatBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    borderWidth: 1.5,
   },
 });

@@ -42,6 +42,24 @@ export interface PendingRating {
   };
 }
 
+/** One chat message inside a booking's conversation. */
+export interface ChatMessage {
+  id: string;
+  bookingId: string;
+  senderId: string;
+  text: string;
+  /** ISO timestamp. */
+  at: string;
+}
+
+/** A booking's chat thread: who you're talking to + whether it's still open. */
+export interface ChatThread {
+  /** False once the parking completed/cancelled — chat closed & wiped. */
+  open: boolean;
+  with: { name: string; avatar?: string | null };
+  messages: ChatMessage[];
+}
+
 /** A public review left on a spot (driver → host). */
 export interface SpotReview {
   id: string;

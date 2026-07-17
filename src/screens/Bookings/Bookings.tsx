@@ -222,6 +222,39 @@ export default function Bookings() {
             </Text>
           </View>
 
+          {/* Chat is available the WHOLE parking lifespan — even while the
+              request is still pending (the phone number stays locked until
+              the host accepts, but messages don't need an unlock). */}
+          {["pending", "confirmed", "active"].includes(effectiveStatus(item)) ? (
+            <Pressable
+              onPress={() => {
+                haptics.light();
+                navigation.navigate("Chat", {
+                  bookingId: item.id,
+                  spotTitle: item.spot.title,
+                });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Message the host"
+              style={({ pressed }) => [
+                styles.callRow,
+                {
+                  backgroundColor: colors.surface,
+                  borderWidth: 1.5,
+                  borderColor: colors.primary,
+                  borderRadius: radius.md,
+                  marginTop: spacing.md,
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+              <Text style={{ marginLeft: 8, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                Message host
+              </Text>
+            </Pressable>
+          ) : null}
+
           {/* The whole point: phone appears only after the host accepts. */}
           {item.contactUnlocked && item.hostPhone ? (
             <Pressable
@@ -270,7 +303,7 @@ export default function Bookings() {
         </Card>
       </MotiView>
     ),
-    [colors, spacing, typography, radius, callHost, openCancel, userLoc]
+    [colors, spacing, typography, radius, callHost, openCancel, userLoc, navigation]
   );
 
   return (

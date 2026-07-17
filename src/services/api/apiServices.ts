@@ -8,6 +8,8 @@
  */
 import type {
   Booking,
+  ChatMessage,
+  ChatThread,
   EarningEntry,
   HostRequest,
   ParkingSpot,
@@ -443,6 +445,46 @@ export const apiRatings = {
       method: "POST",
       body: { bookingId, stars, ...(comment ? { comment } : {}) },
     });
+  },
+};
+
+/* ─────────────────────────── chat ─────────────────────────── */
+
+export const apiChat = {
+  /** The chat thread for a booking (open flag + counterparty + messages). */
+  async getThread(bookingId: string): Promise<ChatThread> {
+    const raw = await http.request<any>(
+      `/api/messages/${encodeURIComponent(bookingId)}`
+    );
+    return {
+      open: !!raw?.open,
+      with: {
+        name: raw?.with?.name ?? "ParkingFriend user",
+        avatar: raw?.with?.avatar ?? null,
+      },
+      messages: (raw?.messages ?? []).map((m: any) => ({
+        id: String(m?.id ?? ""),
+        bookingId: String(m?.bookingId ?? bookingId),
+        senderId: String(m?.senderId ?? ""),
+        text: m?.text ?? "",
+        at: m?.at ?? new Date().toISOString(),
+      })),
+    };
+  },
+
+  /** Sends a message into a booking's chat. */
+  async send(bookingId: string, text: string): Promise<ChatMessage> {
+    const raw = await http.request<any>(
+      `/api/messages/${encodeURIComponent(bookingId)}`,
+      { method: "POST", body: { text } }
+    );
+    return {
+      id: String(raw?.id ?? ""),
+      bookingId: String(raw?.bookingId ?? bookingId),
+      senderId: String(raw?.senderId ?? ""),
+      text: raw?.text ?? text,
+      at: raw?.at ?? new Date().toISOString(),
+    };
   },
 };
 

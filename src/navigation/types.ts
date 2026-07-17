@@ -46,6 +46,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   ListSpace: undefined;
   HostRequests: undefined;
+  Chat: { bookingId: string; spotTitle?: string };
 };
 
 export type MainTabParamList = {

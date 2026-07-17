@@ -78,6 +78,9 @@ const COLUMNS = {
     "id", "bookingId", "spotId", "raterId", "rateeId", "raterRole",
     "stars", "comment", "createdAt",
   ],
+  messages: [
+    "id", "bookingId", "senderId", "text", "createdAt",
+  ],
 };
 
 const JSON_COLUMNS = { spots: ["vehicleTypes", "images", "amenities"] };
@@ -193,6 +196,14 @@ const DDL = [
   // One rating per side per booking — makes a double-submit race impossible
   // even if two requests slip past the check-then-act guard in the route.
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ratings_booking_role ON ratings(bookingId, raterRole)`,
+  `CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    bookingId TEXT,
+    senderId TEXT,
+    text TEXT,
+    createdAt TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_booking ON messages(bookingId, createdAt)`,
 ];
 
 /**
@@ -1217,6 +1228,76 @@ async function pendingRatingsForUser(userId) {
   return out;
 }
 
+/* ───────────────────────── repository: chat messages ───────────────────────── */
+
+/**
+ * Chat lives exactly as long as the parking does: it opens the moment the
+ * request exists (pending — before the host even accepts) and stays open
+ * through confirmed/active days. Once the parking is COMPLETED, CANCELLED or
+ * DECLINED, the chat closes and its messages are deleted ("vanish").
+ */
+function isChatOpen(bookingRow) {
+  if (!bookingRow) return false;
+  if (bookingRow.status === "pending") return true;
+  if (bookingRow.status !== "confirmed" && bookingRow.status !== "active") return false;
+  return !isBookingCompleted(bookingRow);
+}
+
+function toMessage(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    bookingId: row.bookingId,
+    senderId: row.senderId,
+    text: row.text || "",
+    at: row.createdAt,
+  };
+}
+
+async function listMessages(bookingId) {
+  await init();
+  const rs = await client.execute({
+    sql: "SELECT * FROM messages WHERE bookingId = ? ORDER BY createdAt ASC",
+    args: [bookingId],
+  });
+  return rs.rows.map((r) => decodeRow("messages", r));
+}
+
+async function insertMessage(row) {
+  return insertRow("messages", row);
+}
+
+async function deleteMessagesForBooking(bookingId) {
+  await init();
+  await client.execute({
+    sql: "DELETE FROM messages WHERE bookingId = ?",
+    args: [bookingId],
+  });
+}
+
+let lastChatPurgeAt = 0;
+
+/**
+ * Deletes every chat whose parking has ended (completed/cancelled/declined or
+ * the booking is gone). Lazy + throttled: runs at most once a minute, piggy-
+ * backing on chat traffic — no cron needed, and a dead chat can never be read
+ * again anyway because the routes check isChatOpen first.
+ */
+async function purgeDeadChats() {
+  const now = Date.now();
+  if (now - lastChatPurgeAt < 60000) return;
+  lastChatPurgeAt = now;
+  await init();
+  const rs = await client.execute("SELECT DISTINCT bookingId FROM messages");
+  for (const r of rs.rows) {
+    const bookingId = String(r.bookingId);
+    const booking = await getRow("bookings", bookingId);
+    if (!isChatOpen(booking)) {
+      await deleteMessagesForBooking(bookingId);
+    }
+  }
+}
+
 /* ───────────────────────── seed support ───────────────────────── */
 
 const upsertUser = (row) => upsertRow("users", row);
@@ -1283,6 +1364,13 @@ module.exports = {
   recomputeHostAndSpot,
   recomputeDriver,
   pendingRatingsForUser,
+  // chat
+  isChatOpen,
+  toMessage,
+  listMessages,
+  insertMessage,
+  deleteMessagesForBooking,
+  purgeDeadChats,
   // seed helpers
   upsertUser,
   upsertSpot,

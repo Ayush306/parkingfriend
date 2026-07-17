@@ -306,6 +306,20 @@ export default function Post() {
               </View>
 
               <View style={styles.requestActions}>
+                {/* Chat with the driver — no accept needed */}
+                {r.bookingId ? (
+                  <Pressable
+                    onPress={() => {
+                      haptics.light();
+                      navigation.navigate("Chat", { bookingId: r.bookingId, spotTitle: r.spotTitle });
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Message ${r.requesterName}`}
+                    style={({ pressed }) => [styles.chatIconBtn, { borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.primary} />
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => respondToRequest(r.id, false)}
                   disabled={respondingId === r.id}
@@ -527,6 +541,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 10,
     borderWidth: 1,
+  },
+  chatIconBtn: {
+    width: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderWidth: 1.5,
   },
   acceptBtn: {
     flex: 1.4,

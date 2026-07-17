@@ -149,6 +149,8 @@ export const STORAGE_KEYS = {
   ratings: "pm_ratings",
   /** Real in-app event feed (new request / accepted / declined …). */
   events: "pm_app_events",
+  /** Per-booking chat threads (demo mode). */
+  chats: "pm_chats",
   /** Watcher snapshots — what we've already seen, so we only notify on NEW. */
   seenRequests: "pm_seen_request_ids",
   seenBookings: "pm_seen_booking_status",
