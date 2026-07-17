@@ -30,7 +30,13 @@ export function useAsync<T>(
   const [error, setError] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
+  // Bumped by EVERY run (silent + non-silent): the freshest response wins the
+  // right to write `data`, so a slow earlier call can't overwrite newer data.
   const callIdRef = useRef(0);
+  // Bumped ONLY by non-silent runs: owns the loading/error lifecycle. A silent
+  // background refetch must never touch this, otherwise a poll firing mid-load
+  // would strand `loading` at true forever (the shimmer-stuck bug).
+  const loadIdRef = useRef(0);
 
   // Keep the latest fn in a ref so `run` can stay stable across renders
   // while `deps` remain the trigger for re-fetching.
@@ -39,6 +45,9 @@ export function useAsync<T>(
 
   const run = useCallback(async (silent = false) => {
     const currentCall = ++callIdRef.current;
+    // Only a visible (non-silent) run owns loading; capture its id so a later
+    // silent poll can't stop this run from clearing loading when it finishes.
+    const currentLoad = silent ? loadIdRef.current : ++loadIdRef.current;
     if (!silent) {
       setLoading(true);
       setError(null);
@@ -51,13 +60,15 @@ export function useAsync<T>(
     } catch (e: unknown) {
       // A silent (background) failure is swallowed — the last good data stays
       // on screen instead of flashing an error during a routine poll.
-      if (mountedRef.current && currentCall === callIdRef.current && !silent) {
+      if (mountedRef.current && !silent && currentLoad === loadIdRef.current) {
         const message =
           e instanceof Error ? e.message : "Something went wrong. Please try again.";
         setError(message);
       }
     } finally {
-      if (mountedRef.current && currentCall === callIdRef.current && !silent) {
+      // Clear loading as long as no NEWER visible run has taken over — a silent
+      // poll bumping callIdRef must not prevent this.
+      if (mountedRef.current && !silent && currentLoad === loadIdRef.current) {
         setLoading(false);
       }
     }

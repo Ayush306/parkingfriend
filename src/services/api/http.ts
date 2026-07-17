@@ -1,6 +1,11 @@
 /**
  * Minimal HTTP client for the ParkingFriend API.
- * JSON in/out, Bearer-token auth, 15s timeout, readable error messages.
+ * JSON in/out, Bearer-token auth, readable error messages.
+ *
+ * Timeout is 30s: the API runs on a free tier that spins down after idle, so
+ * the FIRST request after a quiet spell has to wait for the server to cold-boot
+ * (often 10–25s). A shorter timeout would abort that wake-up and show a spurious
+ * "server took too long" error on the very first screen the user opens.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_URL } from "@/config/apiConfig";
@@ -38,7 +43,7 @@ export interface RequestOptions {
 }
 
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, auth = true, timeoutMs = 15000 } = opts;
+  const { method = "GET", body, auth = true, timeoutMs = 30000 } = opts;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
