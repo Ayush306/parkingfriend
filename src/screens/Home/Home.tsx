@@ -19,8 +19,10 @@ import { useTheme } from "@/theme/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { haptics } from "@/utils/haptics";
 import { bookingService } from "@/services/bookingService";
+import { notificationService } from "@/services/notificationService";
 import { placesService, type Place } from "@/services/placesService";
 import {
   recentSearchesService,
@@ -62,6 +64,10 @@ export default function Home() {
   }, [searchFocused, loadRecentSearches]);
 
   const recentBookings = useAsync<Booking[]>(() => bookingService.list(), []);
+
+  // Honest bell dot: only glows when something is actually unread.
+  const unreadNotifs = useAsync<number>(() => notificationService.unreadCount(), []);
+  useLiveRefresh(unreadNotifs.refetchSilent, 60000);
 
   // Real place lookup — type any place, company, landmark or area name.
   const placeResults = useAsync<Place[]>(
@@ -220,7 +226,9 @@ export default function Home() {
               ]}
             >
               <Ionicons name="notifications-outline" size={22} color={colors.text} />
-              <View style={[styles.bellDot, { backgroundColor: colors.error, borderColor: colors.surface }]} />
+              {(unreadNotifs.data ?? 0) > 0 ? (
+                <View style={[styles.bellDot, { backgroundColor: colors.error, borderColor: colors.surface }]} />
+              ) : null}
             </Pressable>
 
             <Pressable

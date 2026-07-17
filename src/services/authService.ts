@@ -134,6 +134,13 @@ async function validateSession(): Promise<"valid" | "invalid" | "unknown"> {
 /** Clears the saved session (sign out) and any API token. */
 async function logout(): Promise<void> {
   await removePersisted(STORAGE_KEYS.session);
+  // The notification feed and watcher snapshots belong to THIS account —
+  // wipe them so the next person to sign in on this phone never sees the
+  // previous user's notifications (and gets a clean first-run seed).
+  await removePersisted(STORAGE_KEYS.events).catch(() => {});
+  await removePersisted(STORAGE_KEYS.seenRequests).catch(() => {});
+  await removePersisted(STORAGE_KEYS.seenBookings).catch(() => {});
+  await removePersisted(STORAGE_KEYS.notifRead).catch(() => {});
   await apiAuth.logout().catch(() => {});
 }
 

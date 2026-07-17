@@ -222,16 +222,34 @@ export default function Post() {
 
         {/* Incoming requests */}
         <View style={styles.subHeaderRow}>
-          <Text style={[styles.subLabel, { color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
-            Incoming requests
-          </Text>
-          {pendingRequests.length > 0 ? (
-            <View style={[styles.countPill, { backgroundColor: colors.primaryLight }]}>
-              <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
-                {pendingRequests.length} new
-              </Text>
-            </View>
-          ) : null}
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={[styles.subLabel, { color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
+              Incoming requests
+            </Text>
+            {pendingRequests.length > 0 ? (
+              <View style={[styles.countPill, { backgroundColor: colors.primaryLight, marginLeft: 8 }]}>
+                <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
+                  {pendingRequests.length} new
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {/* Always available: the full inbox with history (accepted/declined). */}
+          <Pressable
+            onPress={() => {
+              haptics.light();
+              navigation.navigate("HostRequests");
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="See all booking requests"
+            style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+              See all
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </Pressable>
         </View>
 
         {requests.loading && !requests.data ? (

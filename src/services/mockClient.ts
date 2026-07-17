@@ -147,5 +147,10 @@ export const STORAGE_KEYS = {
   requests: "pm_requests",
   recentSearches: "pm_recent_searches",
   ratings: "pm_ratings",
+  /** Real in-app event feed (new request / accepted / declined …). */
+  events: "pm_app_events",
+  /** Watcher snapshots — what we've already seen, so we only notify on NEW. */
+  seenRequests: "pm_seen_request_ids",
+  seenBookings: "pm_seen_booking_status",
   notifRead: "pm_notif_read",
 } as const;

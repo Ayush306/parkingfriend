@@ -211,10 +211,17 @@ export default function Notifications() {
         );
         void notificationService.markRead(item.id);
       }
-      // A "leave a rating" reminder takes you straight to where the Rate
-      // button lives: My bookings (you rate the host) or My Space (you rate
-      // your guest).
-      if (item.id.startsWith("rate_")) {
+      // Every notification takes you straight to where you can ACT on it:
+      //   new request       → Booking requests (accept/decline there)
+      //   accepted/declined → My bookings
+      //   rating reminder   → My bookings (rate host) / My Space (rate guest)
+      if (item.id.startsWith("evt_req_")) {
+        haptics.light();
+        navigation.navigate("HostRequests");
+      } else if (item.id.startsWith("evt_bk_")) {
+        haptics.light();
+        navigation.navigate("Main", { screen: "Bookings" });
+      } else if (item.id.startsWith("rate_")) {
         haptics.light();
         navigation.navigate("Main", {
           screen: item.id.startsWith("rate_host") ? "Post" : "Bookings",

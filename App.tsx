@@ -5,7 +5,13 @@ import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from "@react-navigation/native";
+
+import { pushService, type PushData } from "@/services/pushService";
+import type { RootStackParamList } from "@/navigation/types";
 import {
   useFonts,
   Poppins_600SemiBold,
@@ -28,6 +34,44 @@ import { RootNavigator } from "@/navigation/RootNavigator";
 SplashScreen.preventAutoHideAsync().catch(() => {
   /* reloading the app might trigger some race conditions, ignore them */
 });
+
+/**
+ * Notification-tap deep links. Tapping a phone-panel notification opens the
+ * screen where the user can ACT on it:
+ *   host_request   → Booking requests (accept/decline right there)
+ *   booking_update → Bookings tab (accepted/declined state + host's number)
+ *   rate           → Bookings tab (the Rate prompt lives at the top)
+ * If the tap arrives before navigation is ready (cold start), it's queued and
+ * replayed the moment the container mounts.
+ */
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+let pendingTap: PushData | null = null;
+
+function handleNotificationTap(data: PushData, attempt = 0) {
+  if (!navigationRef.isReady()) {
+    pendingTap = data;
+    return;
+  }
+  // On a cold start the app boots through Splash (which then resets to Main
+  // or Welcome). Navigating during that window would be thrown away — wait
+  // until the reset has landed. If the user ends up signed out (Welcome),
+  // drop the tap: they must log in first anyway.
+  const current = navigationRef.getCurrentRoute()?.name;
+  if (current === "Splash" || current === "Onboarding") {
+    if (attempt < 12) {
+      setTimeout(() => handleNotificationTap(data, attempt + 1), 700);
+    }
+    return;
+  }
+  if (current === "Welcome" || current === "Login" || current === "Register" || current === "OtpVerification") {
+    return;
+  }
+  if (data.type === "host_request") {
+    navigationRef.navigate("HostRequests");
+  } else {
+    navigationRef.navigate("Main", { screen: "Bookings" });
+  }
+}
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -58,6 +102,9 @@ export default function App() {
     }
   }, [appReady]);
 
+  // Route notification taps (including the cold-start one) to their screens.
+  useEffect(() => pushService.addResponseListener(handleNotificationTap), []);
+
   if (!appReady) {
     // Render nothing until fonts resolve; the native splash stays visible.
     return null;
@@ -71,7 +118,16 @@ export default function App() {
           <AuthProvider>
             <BottomSheetModalProvider>
               <ToastProvider>
-                <NavigationContainer>
+                <NavigationContainer
+                  ref={navigationRef}
+                  onReady={() => {
+                    if (pendingTap) {
+                      const tap = pendingTap;
+                      pendingTap = null;
+                      handleNotificationTap(tap);
+                    }
+                  }}
+                >
                   <View style={{ flex: 1 }}>
                     <StatusBar style="auto" />
                     <RootNavigator />

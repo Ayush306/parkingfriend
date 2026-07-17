@@ -10,16 +10,18 @@ import {
 } from "@/services/mockClient";
 import { isApiEnabled } from "@/config/apiConfig";
 import { ratingService } from "@/services/ratingService";
+import { eventFeedService } from "@/services/eventFeedService";
 import { formatDate } from "@/utils/format";
 
 const seedNotifications = notificationsData as unknown as NotificationItem[];
 
 /* ── API mode ─────────────────────────────────────────────────────────
- * Real accounts get REAL notifications, not the bundled demo feed. Today
- * that means "leave a rating" reminders: one per completed parking the user
- * hasn't rated yet — as the driver (rate your host) AND as the host (rate
- * your guest). A reminder disappears by itself once the rating is left.
- * Read-state is kept on-device (ids in storage). */
+ * Real accounts get REAL notifications, not the bundled demo feed:
+ *   1. the live event feed the watcher writes (new request, accepted,
+ *      declined — see useNotificationWatcher), newest first, and
+ *   2. "leave a rating" reminders: one per completed parking the user
+ *      hasn't rated yet, which disappear by themselves once rated.
+ * Read-state is kept on-device. */
 
 const ratingNotifId = (role: string, bookingId: string) =>
   `rate_${role}_${bookingId}`;
@@ -29,12 +31,13 @@ async function readReadIds(): Promise<string[]> {
 }
 
 async function apiList(): Promise<NotificationItem[]> {
-  const [pending, readIds] = await Promise.all([
+  const [events, pending, readIds] = await Promise.all([
+    eventFeedService.list().catch(() => [] as NotificationItem[]),
     ratingService.getPending().catch(() => []),
     readReadIds(),
   ]);
   const read = new Set(readIds);
-  return pending.map((p) => {
+  const reminders: NotificationItem[] = pending.map((p) => {
     const id = ratingNotifId(p.role, p.bookingId);
     return {
       id,
@@ -49,6 +52,8 @@ async function apiList(): Promise<NotificationItem[]> {
       icon: "star",
     };
   });
+  // Live events first (already newest-first), then the rating reminders.
+  return [...events, ...reminders];
 }
 
 /* ── demo mode ──────────────────────────────────────────────────────── */
@@ -65,7 +70,10 @@ async function readAll(): Promise<NotificationItem[]> {
 async function list(): Promise<NotificationItem[]> {
   if (isApiEnabled()) return apiList();
   await delay(randomLatency());
-  return readAll();
+  // Demo mode too shows the LIVE events the watcher recorded (role-play on
+  // one device still produces real accept/decline activity) above the seed.
+  const events = await eventFeedService.list().catch(() => [] as NotificationItem[]);
+  return [...events, ...(await readAll())];
 }
 
 /** Number of currently unread notifications. */
@@ -77,6 +85,7 @@ async function unreadCount(): Promise<number> {
 /** Marks all notifications as read and persists the state. */
 async function markAllRead(): Promise<NotificationItem[]> {
   if (isApiEnabled()) {
+    await eventFeedService.markAllRead().catch(() => {});
     const [all, existing] = await Promise.all([apiList(), readReadIds()]);
     // MERGE with what's already read (never replace — a failed fetch must not
     // wipe the read-state) and cap the list so it can't grow forever.
@@ -85,25 +94,34 @@ async function markAllRead(): Promise<NotificationItem[]> {
     return all.map((n) => ({ ...n, read: true }));
   }
   await delay(randomLatency());
+  await eventFeedService.markAllRead().catch(() => {});
   const all = await readAll();
   const next = all.map((n) => ({ ...n, read: true }));
   await writePersisted(STORAGE_KEYS.notifications, next);
-  return clone(next);
+  return list();
 }
 
 /** Marks a single notification as read and persists the state. */
 async function markRead(id: string): Promise<NotificationItem[]> {
   if (isApiEnabled()) {
+    if (id.startsWith("evt_")) {
+      await eventFeedService.markRead(id).catch(() => {});
+      return apiList();
+    }
     const readIds = await readReadIds();
     if (!readIds.includes(id)) {
       await writePersisted(STORAGE_KEYS.notifRead, [...readIds, id].slice(-200));
     }
     return apiList();
   }
+  if (id.startsWith("evt_")) {
+    await eventFeedService.markRead(id).catch(() => {});
+    return list();
+  }
   const all = await readAll();
   const next = all.map((n) => (n.id === id ? { ...n, read: true } : n));
   await writePersisted(STORAGE_KEYS.notifications, next);
-  return clone(next);
+  return list();
 }
 
 export const notificationService = {

@@ -56,6 +56,13 @@
         {
           "photosPermission": "ParkingFriend uses your photos so you can set a profile picture."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/splash-icon.png",
+          "color": "#0FB57E"
+        }
       ]
     ],
     "extra": {

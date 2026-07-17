@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/theme/ThemeContext";
 import { usePendingRequestCount } from "@/hooks/usePendingRequestCount";
+import { useNotificationWatcher } from "@/hooks/useNotificationWatcher";
 import { MainTabParamList } from "@/navigation/types";
 
 import Home from "@/screens/Home/Home";
@@ -206,6 +207,11 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 export default function MainTabs() {
+  // Watches for new requests / accepts / declines and raises both the
+  // phone-panel notification and the in-app feed entry. Lives here so it
+  // runs the whole time the user is signed in, whatever tab they're on.
+  useNotificationWatcher();
+
   return (
     <Tab.Navigator
       screenOptions={{ headerShown: false }}

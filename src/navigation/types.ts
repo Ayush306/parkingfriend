@@ -1,3 +1,5 @@
+import type { NavigatorScreenParams } from "@react-navigation/native";
+
 export type RootStackParamList = {
   // Auth / entry stack
   Splash: undefined;
@@ -14,8 +16,8 @@ export type RootStackParamList = {
       }
     | undefined;
 
-  // Main tabs wrapper
-  Main: undefined;
+  // Main tabs wrapper (accepts nested tab targets, e.g. { screen: "Bookings" })
+  Main: NavigatorScreenParams<MainTabParamList> | undefined;
 
   // Tab primary screens (registered inside MainTabs, but typed for convenience)
   Home: undefined;
