@@ -1,12 +1,5 @@
 import React, { useCallback, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -166,9 +159,8 @@ export default function Feedback() {
     <Screen scroll padded>
       <Header title="Feedback" showBack onBack={() => navigation.goBack()} />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      {/* Keyboard avoidance is handled by the parent <Screen scroll>. */}
+      <View>
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -318,7 +310,7 @@ export default function Feedback() {
             {message.length}/500
           </Text>
         </MotiView>
-      </KeyboardAvoidingView>
+      </View>
 
       <View style={{ marginTop: spacing.lg }}>
         <Button

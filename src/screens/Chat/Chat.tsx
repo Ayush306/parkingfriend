@@ -6,8 +6,6 @@ import {
   FlatList,
   TextInput,
   Pressable,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,6 +20,7 @@ import { chatService } from "@/services/chatService";
 import { activeChat } from "@/services/activeChat";
 import { Avatar } from "@/components/ui/Avatar";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { KeyboardAvoider } from "@/components/ui/KeyboardAvoider";
 import { useToast } from "@/components/ui/Toast";
 import { haptics } from "@/utils/haptics";
 import type { ChatMessage, ChatThread } from "@/models/types";
@@ -226,11 +225,7 @@ export default function Chat() {
         </Text>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
-      >
+      <KeyboardAvoider style={styles.flex}>
         {/* ── Messages ── */}
         {thread.loading && !thread.data ? (
           <View style={[styles.flex, styles.center]}>
@@ -337,7 +332,7 @@ export default function Chat() {
             </Text>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

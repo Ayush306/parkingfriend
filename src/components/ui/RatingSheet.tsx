@@ -6,13 +6,12 @@ import {
   Modal,
   Pressable,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/theme/ThemeContext";
 import { Avatar } from "@/components/ui/Avatar";
+import { KeyboardAvoider } from "@/components/ui/KeyboardAvoider";
 import { haptics } from "@/utils/haptics";
 
 const WORDS = ["", "Poor", "Okay", "Good", "Great", "Excellent"];
@@ -69,10 +68,7 @@ export const RatingSheet: React.FC<RatingSheetProps> = ({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoider style={styles.flex}>
         <Pressable
           style={[styles.overlay, { backgroundColor: colors.overlay }]}
           onPress={loading ? undefined : onClose}
@@ -239,7 +235,7 @@ export const RatingSheet: React.FC<RatingSheetProps> = ({
             </MotiView>
           </Pressable>
         </Pressable>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </Modal>
   );
 };

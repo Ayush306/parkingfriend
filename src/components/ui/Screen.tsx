@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView, Edge } from "react-native-safe-area-context";
 import { useTheme } from "@/theme/ThemeContext";
+import { KeyboardAvoider } from "@/components/ui/KeyboardAvoider";
 
 export interface ScreenProps {
   children: React.ReactNode;
@@ -41,29 +42,35 @@ export function Screen({
         edges={edges}
         style={[styles.flex, { backgroundColor: colors.bg }]}
       >
-        <ScrollView
-          style={styles.flex}
-          contentContainerStyle={[
-            styles.scrollContent,
-            paddingStyle,
-            style as ViewStyle,
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            onRefresh ? (
-              <RefreshControl
-                refreshing={!!refreshing}
-                onRefresh={onRefresh}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
-                progressBackgroundColor={colors.surface}
-              />
-            ) : undefined
-          }
-        >
-          {children}
-        </ScrollView>
+        {/* Keyboard-aware: on a form the ScrollView viewport shrinks above the
+            keyboard so EVERY field stays reachable by scrolling — the fix for
+            Android edge-to-edge, where the window no longer auto-resizes. */}
+        <KeyboardAvoider style={styles.flex}>
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={[
+              styles.scrollContent,
+              paddingStyle,
+              style as ViewStyle,
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            refreshControl={
+              onRefresh ? (
+                <RefreshControl
+                  refreshing={!!refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                  progressBackgroundColor={colors.surface}
+                />
+              ) : undefined
+            }
+          >
+            {children}
+          </ScrollView>
+        </KeyboardAvoider>
       </SafeAreaView>
     );
   }
