@@ -275,7 +275,7 @@ function render(s){
   var uptimeH = Math.floor(s.health.uptimeSec / 3600);
   el("meta").textContent = "Updated " + new Date(s.generatedAt).toLocaleTimeString() +
     " · server up " + (uptimeH > 0 ? uptimeH + "h" : Math.floor(s.health.uptimeSec / 60) + "m") +
-    " · auto-refreshes every 60s";
+    " · tap Refresh for the latest";
 
   var h = "";
   h += '<div class="section">Users</div><div class="grid">';
@@ -376,8 +376,10 @@ function logout(){
 document.addEventListener("keydown", function(ev){
   if (ev.key === "Enter" && el("login").style.display !== "none") doLogin();
 });
+// One load on open/login — after that, data only changes when you tap
+// Refresh. No background polling, so leaving this tab open never spends
+// your Turso read quota.
 load();
-setInterval(load, 60000);
 </script>
 </body>
 </html>`;
