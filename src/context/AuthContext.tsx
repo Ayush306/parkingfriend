@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import type { User } from "@/models/types";
 import { authService } from "@/services/authService";
+import { telemetry } from "@/services/telemetry";
 
 export interface AuthContextValue {
   /** The currently signed-in user, or null when signed out. */
@@ -101,6 +102,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const result = await authService.verifyOtp(phone, code, extra);
       setUser(result.user);
+      // `extra.name` present = the Register flow; absent = Login. Fires AFTER
+      // success so the funnel counts real accounts, not failed attempts.
+      telemetry.track(extra?.name ? "signup" : "login");
       return result.user;
     },
     []
@@ -112,6 +116,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Track BEFORE the token is dropped so the event still attributes to the
+    // user; flush is best-effort (an offline logout must still work).
+    telemetry.track("logout");
+    telemetry.flushNow();
     await authService.logout();
     setUser(null);
   }, []);

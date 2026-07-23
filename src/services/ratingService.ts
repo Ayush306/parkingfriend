@@ -1,6 +1,7 @@
 import type { Booking, PendingRating } from "@/models/types";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiRatings } from "@/services/api/apiServices";
+import { telemetry } from "@/services/telemetry";
 import {
   delay,
   randomLatency,
@@ -68,7 +69,11 @@ async function submit(
   stars: number,
   comment?: string
 ): Promise<void> {
-  if (isApiEnabled()) return apiRatings.submit(bookingId, stars, comment);
+  if (isApiEnabled()) {
+    await apiRatings.submit(bookingId, stars, comment);
+    telemetry.track("rating_submitted", { stars });
+    return;
+  }
   await delay(randomLatency());
   // Demo: remember it was rated (clears the prompt) and nudge the local spot's
   // star rating so the change is visible on this device.

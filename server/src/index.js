@@ -12,6 +12,11 @@ const db = require("./db");
 
 const app = express();
 
+// Render sits one proxy hop in front. This makes req.ip resolve the REAL
+// client address from the trusted position of X-Forwarded-For — without it,
+// clients could spoof the header and rotate identities past the rate limiters.
+app.set("trust proxy", 1);
+
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
@@ -35,6 +40,8 @@ app.use("/api/bookings", require("./routes/bookings"));
 app.use("/api/wallet", require("./routes/wallet"));
 app.use("/api/ratings", require("./routes/ratings"));
 app.use("/api/messages", require("./routes/messages"));
+app.use("/api/telemetry", require("./routes/telemetry"));
+app.use("/", require("./routes/admin")); // /admin dashboard + /api/admin/stats
 
 // 404 for anything unmatched
 app.use((req, res) => {

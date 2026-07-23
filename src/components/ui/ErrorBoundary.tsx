@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { telemetry } from "@/services/telemetry";
 
 interface Props {
   children: React.ReactNode;
@@ -26,7 +27,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: unknown) {
-    // Hook point for a crash reporter (Sentry etc.) when one is added.
+    // Render crashes reach the founder's admin dashboard (fail-silent).
+    try {
+      telemetry.captureError(error, (error as any)?.stack, true);
+    } catch {
+      /* never make a crash worse */
+    }
     console.warn("Unhandled error caught by ErrorBoundary:", error);
   }
 

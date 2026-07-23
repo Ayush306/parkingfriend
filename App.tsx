@@ -11,6 +11,8 @@ import {
 } from "@react-navigation/native";
 
 import { pushService, type PushData } from "@/services/pushService";
+import { telemetry } from "@/services/telemetry";
+import { errorTracking } from "@/services/errorTracking";
 import type { RootStackParamList } from "@/navigation/types";
 import {
   useFonts,
@@ -76,7 +78,16 @@ function handleNotificationTap(data: PushData, attempt = 0) {
       spotTitle: typeof data.spotTitle === "string" ? data.spotTitle : undefined,
     });
   } else {
-    navigationRef.navigate("Main", { screen: "Bookings" });
+    // "Parking accepted 🎉" lands straight on the Accepted tab; a decline or
+    // cancel lands on Past — the booking is right there, zero hunting.
+    const tab =
+      data.tab === "Accepted" || data.tab === "Past" || data.tab === "Requested"
+        ? data.tab
+        : undefined;
+    navigationRef.navigate("Main", {
+      screen: "Bookings",
+      params: tab ? { tab } : undefined,
+    });
   }
 }
 
@@ -112,6 +123,21 @@ export default function App() {
   // Route notification taps (including the cold-start one) to their screens.
   useEffect(() => pushService.addResponseListener(handleNotificationTap), []);
 
+  // Analytics + crash capture. Both are fail-silent by construction — they can
+  // never affect the UI. Order matters: the error hook first, so even a crash
+  // during startup is recorded.
+  useEffect(() => {
+    errorTracking.setup();
+    telemetry.init();
+  }, []);
+
+  // Every screen change becomes a screen_view event (name only, no params) —
+  // this powers "most visited screens" and "where do users get stuck".
+  const trackScreen = useCallback(() => {
+    const route = navigationRef.getCurrentRoute();
+    if (route?.name) telemetry.screen(route.name);
+  }, []);
+
   if (!appReady) {
     // Render nothing until fonts resolve; the native splash stays visible.
     return null;
@@ -128,12 +154,14 @@ export default function App() {
                 <NavigationContainer
                   ref={navigationRef}
                   onReady={() => {
+                    trackScreen();
                     if (pendingTap) {
                       const tap = pendingTap;
                       pendingTap = null;
                       handleNotificationTap(tap);
                     }
                   }}
+                  onStateChange={trackScreen}
                 >
                   <View style={{ flex: 1 }}>
                     <StatusBar style="auto" />

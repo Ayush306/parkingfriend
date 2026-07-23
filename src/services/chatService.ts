@@ -1,5 +1,6 @@
 import type { Booking, ChatMessage, ChatSummary, ChatThread } from "@/models/types";
 import { isApiEnabled } from "@/config/apiConfig";
+import { telemetry } from "@/services/telemetry";
 import { apiChat } from "@/services/api/apiServices";
 import { authService } from "@/services/authService";
 import {
@@ -66,7 +67,11 @@ async function getThread(bookingId: string): Promise<ChatThread> {
 async function send(bookingId: string, text: string): Promise<ChatMessage> {
   const trimmed = text.trim().slice(0, 500);
   if (!trimmed) throw new Error("Type a message first.");
-  if (isApiEnabled()) return apiChat.send(bookingId, trimmed);
+  if (isApiEnabled()) {
+    const sent = await apiChat.send(bookingId, trimmed);
+    telemetry.track("chat_message_sent"); // count only — content stays private
+    return sent;
+  }
   await delay(randomLatency());
   const bookings = await readPersisted<Booking[]>(STORAGE_KEYS.bookings, []);
   const booking = bookings.find((b) => b.id === bookingId) ?? null;

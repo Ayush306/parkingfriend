@@ -133,6 +133,15 @@ async function validateSession(): Promise<"valid" | "invalid" | "unknown"> {
 
 /** Clears the saved session (sign out) and any API token. */
 async function logout(): Promise<void> {
+  // Un-register this device's push token FIRST (while we still hold the auth
+  // token). Otherwise the next person to sign in on this phone would keep
+  // receiving THIS account's request/cancel/chat pushes. Best-effort: an
+  // offline logout must still succeed (the server also de-dupes on re-login).
+  if (isApiEnabled()) {
+    await http
+      .request("/api/me/push-token", { method: "POST", body: { token: null } })
+      .catch(() => {});
+  }
   await removePersisted(STORAGE_KEYS.session);
   // The notification feed and watcher snapshots belong to THIS account —
   // wipe them so the next person to sign in on this phone never sees the
@@ -142,6 +151,8 @@ async function logout(): Promise<void> {
   await removePersisted(STORAGE_KEYS.seenBookings).catch(() => {});
   await removePersisted(STORAGE_KEYS.seenChats).catch(() => {});
   await removePersisted(STORAGE_KEYS.notifRead).catch(() => {});
+  // Local push flag is per-account too — the next login re-registers fresh.
+  await AsyncStorage.removeItem("pm_push_registered").catch(() => {});
   await apiAuth.logout().catch(() => {});
 }
 

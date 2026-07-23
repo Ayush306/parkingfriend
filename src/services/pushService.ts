@@ -5,6 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { http } from "@/services/api/http";
 import { isApiEnabled } from "@/config/apiConfig";
 import { activeChat } from "@/services/activeChat";
+import { telemetry } from "@/services/telemetry";
 
 /**
  * Phone-panel notifications (the Android/iOS notification shade).
@@ -26,6 +27,8 @@ export interface PushData {
   spotTitle?: string;
   /** Which HostRequests filter a host_request tap should land on. */
   filter?: "Pending" | "Accepted" | "All";
+  /** Which My Bookings tab a booking_update tap should land on. */
+  tab?: "Requested" | "Accepted" | "Past";
   [key: string]: unknown;
 }
 
@@ -121,10 +124,17 @@ async function registerForPush(): Promise<boolean> {
     if (!token) throw new Error("no token");
     await http.request("/api/me/push-token", { method: "POST", body: { token } });
     await AsyncStorage.setItem(PUSH_REGISTERED_KEY, "true");
+    telemetry.track("push_registered");
     return true;
   } catch {
+    // A TRANSIENT failure (poor connectivity) must not flip a previously
+    // registered device to "false": the server still holds this device's
+    // token and will keep pushing, so claiming "not registered" would make the
+    // watcher ALSO fire local pop-ups — every event double-notifies. Only
+    // record "false" for a device that was never successfully registered.
     try {
-      await AsyncStorage.setItem(PUSH_REGISTERED_KEY, "false");
+      const prior = await AsyncStorage.getItem(PUSH_REGISTERED_KEY);
+      if (prior !== "true") await AsyncStorage.setItem(PUSH_REGISTERED_KEY, "false");
     } catch {
       /* ignore */
     }

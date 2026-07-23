@@ -65,11 +65,13 @@ const COLUMNS = {
   bookings: [
     "id", "userId", "spotId", "date", "time", "startTime", "endTime",
     "durationHours", "vehicleType", "vehicleNumber", "status", "totalAmount",
-    "contactUnlocked", "otp", "cancelReason", "createdAt",
+    "contactUnlocked", "otp", "cancelReason", "cancelledBy", "hostCancelReason",
+    "accruedDays", "createdAt",
   ],
   host_requests: [
     "id", "hostId", "spotId", "bookingId", "spotTitle", "requesterId", "requesterName",
     "requesterPhone", "requesterAvatar", "vehicleType", "date", "time", "status",
+    "cancelledBy",
   ],
   earnings: [
     "id", "userId", "kind", "title", "subtitle", "amount", "date", "bookingId",
@@ -80,6 +82,14 @@ const COLUMNS = {
   ],
   messages: [
     "id", "bookingId", "senderId", "text", "createdAt",
+  ],
+  events: [
+    "id", "userId", "anonId", "sessionId", "name", "props",
+    "appVersion", "platform", "osVersion", "deviceModel", "clientAt", "createdAt",
+  ],
+  client_errors: [
+    "id", "userId", "anonId", "sessionId", "message", "stack", "fatal", "screen",
+    "appVersion", "platform", "osVersion", "deviceModel", "clientAt", "createdAt",
   ],
 };
 
@@ -156,6 +166,9 @@ const DDL = [
     contactUnlocked INTEGER DEFAULT 0,
     otp TEXT,
     cancelReason TEXT,
+    cancelledBy TEXT,
+    hostCancelReason TEXT,
+    accruedDays INTEGER,
     createdAt TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS host_requests (
@@ -171,7 +184,8 @@ const DDL = [
     vehicleType TEXT,
     date TEXT,
     time TEXT,
-    status TEXT
+    status TEXT,
+    cancelledBy TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS earnings (
     id TEXT PRIMARY KEY,
@@ -205,6 +219,51 @@ const DDL = [
     createdAt TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_messages_booking ON messages(bookingId, createdAt)`,
+  // ── Telemetry: first-party product analytics + client error reports ──
+  // The APP side of this contract is baked into shipped APKs and can never
+  // change; everything here (and in adminStats) is server-side and free to
+  // evolve. props is a JSON string capped by the route (never trusted raw).
+  `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    anonId TEXT,
+    sessionId TEXT,
+    name TEXT NOT NULL,
+    props TEXT,
+    appVersion TEXT,
+    platform TEXT,
+    osVersion TEXT,
+    deviceModel TEXT,
+    clientAt TEXT,
+    createdAt TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_events_created ON events(createdAt)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_name_created ON events(name, createdAt)`,
+  `CREATE INDEX IF NOT EXISTS idx_events_actor_created ON events(userId, anonId, createdAt)`,
+  `CREATE TABLE IF NOT EXISTS client_errors (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    anonId TEXT,
+    sessionId TEXT,
+    message TEXT,
+    stack TEXT,
+    fatal INTEGER DEFAULT 0,
+    screen TEXT,
+    appVersion TEXT,
+    platform TEXT,
+    osVersion TEXT,
+    deviceModel TEXT,
+    clientAt TEXT,
+    createdAt TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cerrors_created ON client_errors(createdAt)`,
+  // Identity stitching needs anonId lookups; devices is a purge-proof rollup
+  // so "installs seen" survives the 180-day events retention cap.
+  `CREATE INDEX IF NOT EXISTS idx_events_anon ON events(anonId)`,
+  `CREATE TABLE IF NOT EXISTS devices (
+    anonId TEXT PRIMARY KEY,
+    firstSeenAt TEXT
+  )`,
 ];
 
 /**
@@ -238,6 +297,17 @@ const MIGRATIONS = [
   { table: "host_requests", column: "requesterId", ddl: "ALTER TABLE host_requests ADD COLUMN requesterId TEXT" },
   // Expo push token — lets the server notify this user's phone directly.
   { table: "users", column: "pushToken", ddl: "ALTER TABLE users ADD COLUMN pushToken TEXT" },
+  // WHO cancelled ("driver" | "host") — a host cancelling an accepted booking
+  // must read differently on each side than a driver withdrawing.
+  { table: "bookings", column: "cancelledBy", ddl: "ALTER TABLE bookings ADD COLUMN cancelledBy TEXT" },
+  { table: "host_requests", column: "cancelledBy", ddl: "ALTER TABLE host_requests ADD COLUMN cancelledBy TEXT" },
+  // The HOST's cancel reason lives in its OWN column: `cancelReason` stays
+  // exclusively driver-authored, because already-shipped app versions treat
+  // "cancelled + cancelReason" as the driver's own cancel (and stay silent).
+  { table: "bookings", column: "hostCancelReason", ddl: "ALTER TABLE bookings ADD COLUMN hostCancelReason TEXT" },
+  // Snapshot of the parking days that had ALREADY fully happened when a
+  // confirmed booking was cancelled mid-stay — those days stay earned/ratable.
+  { table: "bookings", column: "accruedDays", ddl: "ALTER TABLE bookings ADD COLUMN accruedDays INTEGER" },
 ];
 
 /**
@@ -473,19 +543,47 @@ function isBookingCompleted(row) {
 }
 
 /**
+ * Both sides may rate each other when the parking fully happened — OR when a
+ * confirmed booking was cancelled mid-stay after at least one day that
+ * really happened (the accruedDays snapshot). A host who cancels on the last
+ * morning can't dodge the review for the days the driver actually parked.
+ */
+function isBookingRatable(row) {
+  if (!row) return false;
+  if (isBookingCompleted(row)) return true;
+  return row.status === "cancelled" && (Number(row.accruedDays) || 0) > 0;
+}
+
+/**
+ * The LAST day (YYYY-MM-DD) a booking occupies its spot — a multi-day
+ * parking holds its slot until midnight after its final day, not just its
+ * start date. Mirrors bookingDays() exactly (function hoisting).
+ */
+function bookingLastDay(row) {
+  const start = String((row && row.date) || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return start;
+  const d = new Date(`${start}T00:00:00Z`);
+  if (isNaN(d.getTime())) return start;
+  d.setUTCDate(d.getUTCDate() + bookingDays(row) - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * Accepted bookings currently holding a slot at this spot.
  * "pending" doesn't hold a slot — only what the host has accepted counts,
- * and only for today or a future date: yesterday's parking frees its slot
- * automatically at midnight (bookings never transition to "completed" on
- * their own, so without the date scope a slot would be held forever).
+ * and only while the parking is still running: a slot frees automatically at
+ * midnight after the booking's LAST day (a 3-day parking holds its slot for
+ * all 3 days, not just the first). Filtered in JS so the day math is the
+ * exact same bookingDays() used everywhere else.
  */
 async function countActiveBookings(spotId) {
   await init();
   const rs = await client.execute({
-    sql: "SELECT COUNT(*) AS n FROM bookings WHERE spotId = ? AND status IN ('confirmed', 'active') AND date >= ?",
-    args: [spotId, todayLocal()],
+    sql: "SELECT date, durationHours FROM bookings WHERE spotId = ? AND status IN ('confirmed', 'active')",
+    args: [spotId],
   });
-  return Number(rs.rows[0].n) || 0;
+  const today = todayLocal();
+  return rs.rows.filter((r) => bookingLastDay(r) >= today).length;
 }
 
 /**
@@ -536,18 +634,24 @@ async function getRowsByIds(table, ids) {
   return out;
 }
 
-/** Taken-slot counts for MANY spots in one GROUP BY query. Map<spotId, n>. */
+/** Taken-slot counts for MANY spots in one query each 100. Map<spotId, n>.
+ *  Same still-running rule as countActiveBookings (last day, not start day). */
 async function countActiveBookingsBulk(spotIds) {
   await init();
   const unique = [...new Set(spotIds.filter(Boolean).map(String))];
   const out = new Map();
+  const today = todayLocal();
   for (let i = 0; i < unique.length; i += 100) {
     const chunk = unique.slice(i, i + 100);
     const rs = await client.execute({
-      sql: `SELECT spotId, COUNT(*) AS n FROM bookings WHERE spotId IN (${chunk.map(() => "?").join(", ")}) AND status IN ('confirmed', 'active') AND date >= ? GROUP BY spotId`,
-      args: [...chunk, todayLocal()],
+      sql: `SELECT spotId, date, durationHours FROM bookings WHERE spotId IN (${chunk.map(() => "?").join(", ")}) AND status IN ('confirmed', 'active')`,
+      args: chunk,
     });
-    for (const r of rs.rows) out.set(String(r.spotId), Number(r.n) || 0);
+    for (const r of rs.rows) {
+      if (bookingLastDay(r) < today) continue;
+      const key = String(r.spotId);
+      out.set(key, (out.get(key) || 0) + 1);
+    }
   }
   return out;
 }
@@ -698,6 +802,8 @@ function toBookingWith(row, spotRow, ctx) {
   };
   if (row.otp) booking.otp = row.otp;
   if (row.cancelReason) booking.cancelReason = row.cancelReason;
+  if (row.cancelledBy) booking.cancelledBy = row.cancelledBy;
+  if (row.hostCancelReason) booking.hostCancelReason = row.hostCancelReason;
   return booking;
 }
 
@@ -726,12 +832,18 @@ function toHostRequest(row) {
     spotTitle: row.spotTitle,
     requesterId: row.requesterId || undefined,
     requesterName: row.requesterName,
-    requesterPhone: row.requesterPhone || null,
+    // The driver's phone only travels while the request is alive — a
+    // declined/cancelled request must not keep exposing it forever.
+    requesterPhone:
+      row.status === "pending" || row.status === "accepted"
+        ? row.requesterPhone || null
+        : null,
     requesterAvatar: row.requesterAvatar || undefined,
     vehicleType: row.vehicleType,
     date: row.date,
     time: row.time,
     status: row.status,
+    cancelledBy: row.cancelledBy || undefined,
   };
 }
 
@@ -782,7 +894,19 @@ async function createUser({ phone, name, email, avatar }) {
 
 /** Stores (or clears) the user's Expo push token. */
 async function savePushToken(id, token) {
-  return updateRow("users", id, { pushToken: token || null });
+  await init();
+  const clean = typeof token === "string" && token.trim() ? token.trim() : null;
+  if (clean) {
+    // One physical device = one push token = one owner. If this token was
+    // previously registered to a DIFFERENT account (the last person to use
+    // this phone logged out without clearing it, or their logout was offline),
+    // steal it, so that account stops receiving this device's notifications.
+    await client.execute({
+      sql: "UPDATE users SET pushToken = NULL WHERE pushToken = ? AND id <> ?",
+      args: [clean, id],
+    });
+  }
+  return updateRow("users", id, { pushToken: clean });
 }
 
 /** Update a user's editable profile fields (name / email / avatar). */
@@ -841,16 +965,31 @@ async function removeListingWithCascade(spotId) {
   const toCancel = liveRs.rows
     .map((r) => decodeRow("bookings", r))
     // Pending requests are never history; accepted ones survive only if done.
-    .filter((b) => b.status === "pending" || completedDaysOf(b, today) < bookingDays(b))
-    .map((b) => b.id);
-  const stmts = toCancel.map((id) =>
-    updateStmt("bookings", id, { status: "cancelled", contactUnlocked: false })
+    .filter((b) => b.status === "pending" || completedDaysOf(b, today) < bookingDays(b));
+  const stmts = toCancel.map((b) =>
+    // cancelledBy "host": removing the listing is the host's decision, so the
+    // driver's app words it as a host cancel (and their watcher notifies).
+    // accruedDays: an in-progress stay keeps its already-completed days
+    // earned/ratable even though the listing is gone.
+    updateStmt("bookings", b.id, {
+      status: "cancelled",
+      contactUnlocked: false,
+      cancelledBy: "host",
+      accruedDays:
+        b.status === "confirmed" || b.status === "active"
+          ? completedDaysOf(b, today)
+          : 0,
+    })
   );
   stmts.push(
     {
       // Host removed the listing = host-initiated: retire BOTH pending and
       // accepted requests, so no "Confirmed guest" ghost survives the removal.
-      sql: "UPDATE host_requests SET status = 'declined' WHERE spotId = ? AND status IN ('pending', 'accepted')",
+      // cancelledBy 'host' tags these as CASCADE retirements (status stays
+      // 'declined' so shipped APKs render identically) — a genuine per-request
+      // decline leaves cancelledBy NULL, which keeps the admin dashboard's
+      // acceptance rate honest after listing removals.
+      sql: "UPDATE host_requests SET status = 'declined', cancelledBy = 'host' WHERE spotId = ? AND status IN ('pending', 'accepted')",
       args: [spotId],
     },
     { sql: "UPDATE spots SET removed = 1, available = 0 WHERE id = ?", args: [spotId] }
@@ -920,8 +1059,12 @@ async function createBookingWithRequest(bookingRow, requestRow) {
  */
 async function cancelBookingWithRequest(bookingRow, reason) {
   await init();
-  const patch = { status: "cancelled", contactUnlocked: false };
+  const patch = { status: "cancelled", contactUnlocked: false, cancelledBy: "driver" };
   if (reason) patch.cancelReason = String(reason);
+  // Days that had already fully happened stay earned/ratable (see accruedDays).
+  if (bookingRow.status === "confirmed" || bookingRow.status === "active") {
+    patch.accruedDays = completedDaysOf(bookingRow, todayLocal());
+  }
   const stmts = [updateStmt("bookings", bookingRow.id, patch)];
   const request = await findRequestByBookingId(bookingRow.id);
   // The DRIVER withdrew: retire the linked request whatever its state — a
@@ -930,10 +1073,40 @@ async function cancelBookingWithRequest(bookingRow, reason) {
   // "cancelled" status lets the host's app say "the driver cancelled" (and
   // notify them) instead of it looking like the host declined.
   if (request && (request.status === "pending" || request.status === "accepted")) {
-    stmts.push(updateStmt("host_requests", request.id, { status: "cancelled" }));
+    stmts.push(updateStmt("host_requests", request.id, { status: "cancelled", cancelledBy: "driver" }));
   }
   await client.batch(stmts, "write");
   return getRow("bookings", bookingRow.id);
+}
+
+/**
+ * The HOST backs out of a booking they already ACCEPTED (allowed any time
+ * before the parking has fully happened — even mid-way). One atomic batch:
+ *   booking  -> "cancelled" + cancelledBy "host" (+ the host's reason),
+ *               contact re-hidden (the phone was only for a live booking)
+ *   request  -> "cancelled" + cancelledBy "host"
+ * Frees the slot (countActiveBookings only counts confirmed/active).
+ * Returns the updated host_requests row.
+ */
+async function hostCancelAcceptedRequest(requestRow, bookingRow, reason) {
+  await init();
+  const stmts = [
+    updateStmt("host_requests", requestRow.id, { status: "cancelled", cancelledBy: "host" }),
+  ];
+  if (bookingRow) {
+    const patch = { status: "cancelled", contactUnlocked: false, cancelledBy: "host" };
+    // The host's reason gets its OWN column — `cancelReason` must stay
+    // driver-authored, or already-shipped app versions would read this
+    // cancel as the driver's own and never notify them.
+    if (reason) patch.hostCancelReason = String(reason);
+    // Days that had already fully happened stay earned/ratable.
+    if (bookingRow.status === "confirmed" || bookingRow.status === "active") {
+      patch.accruedDays = completedDaysOf(bookingRow, todayLocal());
+    }
+    stmts.push(updateStmt("bookings", bookingRow.id, patch));
+  }
+  await client.batch(stmts, "write");
+  return getRow("host_requests", requestRow.id);
 }
 
 /* ───────────────────────── repository: host requests ───────────────────────── */
@@ -972,16 +1145,29 @@ async function updateRequest(id, patch) {
  */
 async function respondToRequest(requestRow, accept, earningRow) {
   await init();
+  // CONDITIONAL updates: a driver cancel landing between the route's guard
+  // read and this batch must never be overwritten — a cancelled booking can't
+  // resurrect to "confirmed" (with the phone revealed) out from under the
+  // driver. The caller re-reads the row and 409s if the cancel won.
   const stmts = [
-    updateStmt("host_requests", requestRow.id, { status: accept ? "accepted" : "declined" }),
+    {
+      sql: "UPDATE host_requests SET status = ? WHERE id = ? AND status != 'cancelled'",
+      args: [accept ? "accepted" : "declined", requestRow.id],
+    },
   ];
   if (requestRow.bookingId && (await getRow("bookings", requestRow.bookingId))) {
     stmts.push(
-      updateStmt(
-        "bookings",
-        requestRow.bookingId,
-        accept ? { status: "confirmed", contactUnlocked: true } : { status: "cancelled" }
-      )
+      accept
+        ? {
+            sql: "UPDATE bookings SET status = 'confirmed', contactUnlocked = 1 WHERE id = ? AND status != 'cancelled'",
+            args: [requestRow.bookingId],
+          }
+        : {
+            // Decline re-locks the contact too — no path may ever leave a
+            // cancelled booking with the host's phone still exposed.
+            sql: "UPDATE bookings SET status = 'cancelled', contactUnlocked = 0 WHERE id = ? AND status != 'cancelled'",
+            args: [requestRow.bookingId],
+          }
     );
   }
   if (earningRow) stmts.push(insertStmt("earnings", earningRow, false));
@@ -1016,6 +1202,10 @@ function completedDaysOf(row, today) {
  * nothing at accept time, the first ₹ appears the morning after the first
  * parked day, and a multi-day parking keeps adding each day. walletSummary
  * and /wallet/entries both build on this, so the numbers always agree.
+ *
+ * Cancelled bookings keep paying for the days that REALLY happened before
+ * the cancel (the accruedDays snapshot written by every cancel path) — money
+ * already shown to the host can never silently disappear.
  */
 async function hostAccruals(userId) {
   await init();
@@ -1023,13 +1213,17 @@ async function hostAccruals(userId) {
   const rs = await client.execute({
     sql: `SELECT b.*, s.pricePerDay AS spotPricePerDay, s.isFree AS spotIsFree, s.title AS spotTitle
           FROM bookings b JOIN spots s ON s.id = b.spotId
-          WHERE s.hostId = ? AND b.status IN ('confirmed', 'active')`,
+          WHERE s.hostId = ? AND (b.status IN ('confirmed', 'active')
+            OR (b.status = 'cancelled' AND COALESCE(b.accruedDays, 0) > 0))`,
     args: [userId],
   });
   const out = [];
   for (const raw of rs.rows) {
     const daysTotal = bookingDays(raw);
-    const daysDone = completedDaysOf(raw, today);
+    const daysDone =
+      raw.status === "cancelled"
+        ? Math.min(daysTotal, Math.max(0, Number(raw.accruedDays) || 0))
+        : completedDaysOf(raw, today);
     if (daysDone <= 0) continue; // nothing earned until a day has passed
     const perDay = raw.spotIsFree ? 0 : Number(raw.spotPricePerDay) || 0;
     out.push({
@@ -1178,23 +1372,32 @@ async function pendingRatingsForUser(userId) {
   const today = todayLocal();
   const out = [];
 
-  // As a DRIVER — rate the host.
+  // As a DRIVER — rate the host. The prompt appears only once the parking is
+  // actually RATABLE (fully done, or cancelled mid-stay after real days) —
+  // the same isBookingRatable rule the POST /ratings endpoint enforces, so a
+  // prompt can never lead to a rejected submit.
   const asDriver = await client.execute({
     sql: `SELECT b.* FROM bookings b
-          WHERE b.userId = ? AND b.status IN ('confirmed','active') AND b.date < ?
+          WHERE b.userId = ? AND (b.status IN ('confirmed','active')
+            OR (b.status = 'cancelled' AND COALESCE(b.accruedDays, 0) > 0)) AND b.date < ?
           AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'driver')`,
     args: [userId, today],
   });
-  const driverRows = asDriver.rows.map((raw) => decodeRow("bookings", raw));
+  const driverRows = asDriver.rows
+    .map((raw) => decodeRow("bookings", raw))
+    .filter((b) => isBookingRatable(b));
 
-  // As a HOST — rate the driver.
+  // As a HOST — rate the driver. Same ratable rule.
   const asHost = await client.execute({
     sql: `SELECT b.* FROM bookings b JOIN spots s ON s.id = b.spotId
-          WHERE s.hostId = ? AND b.status IN ('confirmed','active') AND b.date < ?
+          WHERE s.hostId = ? AND (b.status IN ('confirmed','active')
+            OR (b.status = 'cancelled' AND COALESCE(b.accruedDays, 0) > 0)) AND b.date < ?
           AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.bookingId = b.id AND r.raterRole = 'host')`,
     args: [userId, today],
   });
-  const hostRows = asHost.rows.map((raw) => decodeRow("bookings", raw));
+  const hostRows = asHost.rows
+    .map((raw) => decodeRow("bookings", raw))
+    .filter((b) => isBookingRatable(b));
 
   // Bulk-fetch every spot and person these prompts mention (2 queries).
   const spots = await getRowsByIds("spots", [...driverRows, ...hostRows].map((b) => b.spotId));
@@ -1355,6 +1558,334 @@ async function purgeDeadChats() {
   }
 }
 
+/* ───────────────────────── repository: telemetry / admin ─────────────────────────
+ * First-party analytics. The app-side contract (POST /api/telemetry/events and
+ * /errors with a generic {name, props} shape) is frozen — it ships inside APKs.
+ * EVERYTHING here is server-side and free to evolve: new metrics, new
+ * dashboards, new queries, no app update ever needed. */
+
+/** INSERT OR IGNORE — client-generated ids make retried batches idempotent
+ *  (a flaky network resend can never double-count an event). */
+function insertIgnoreStmt(table, row) {
+  const cols = COLUMNS[table];
+  return {
+    sql: `INSERT OR IGNORE INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+    args: cols.map((c) => (row[c] === undefined ? null : row[c])),
+  };
+}
+
+async function insertEventsBatch(rows) {
+  if (!rows.length) return 0;
+  await init();
+  const stmts = rows.map((r) => insertIgnoreStmt("events", r));
+  // Purge-proof device registry: one row per install, first time it's seen.
+  const seen = new Set();
+  for (const r of rows) {
+    if (r.anonId && !seen.has(r.anonId)) {
+      seen.add(r.anonId);
+      stmts.push({
+        sql: "INSERT OR IGNORE INTO devices (anonId, firstSeenAt) VALUES (?, ?)",
+        args: [r.anonId, r.createdAt],
+      });
+    }
+  }
+  await client.batch(stmts, "write");
+  return rows.length;
+}
+
+/* One human = one actor: when an authed batch pairs anonId with userId,
+ * retro-attribute that device's earlier anonymous rows to the user, so
+ * COUNT(DISTINCT COALESCE(userId, anonId)) can never count a person twice
+ * (once anonymous pre-login + once signed-in). Throttled per device. */
+const stitchedAt = new Map();
+async function stitchTelemetryIdentity(anonId, userId) {
+  const now = Date.now();
+  if (now - (stitchedAt.get(anonId) || 0) < 10 * 60 * 1000) return;
+  stitchedAt.set(anonId, now);
+  if (stitchedAt.size > 10000) stitchedAt.clear();
+  await init();
+  await client.execute({
+    sql: "UPDATE events SET userId = ? WHERE anonId = ? AND userId IS NULL",
+    args: [userId, anonId],
+  });
+  await client.execute({
+    sql: "UPDATE client_errors SET userId = ? WHERE anonId = ? AND userId IS NULL",
+    args: [userId, anonId],
+  });
+}
+
+async function insertClientErrorsBatch(rows) {
+  if (!rows.length) return 0;
+  await init();
+  await client.batch(rows.map((r) => insertIgnoreStmt("client_errors", r)), "write");
+  return rows.length;
+}
+
+let lastTelemetryPurgeAt = 0;
+
+/**
+ * Retention cap so the DB can never grow unbounded: events 180 days, error
+ * reports 90 days. Lazy + throttled (at most every 6h), piggy-backing on
+ * telemetry traffic — no cron needed.
+ */
+async function purgeTelemetry() {
+  const now = Date.now();
+  if (now - lastTelemetryPurgeAt < 6 * 60 * 60 * 1000) return;
+  lastTelemetryPurgeAt = now;
+  await init();
+  await client.execute({
+    sql: "DELETE FROM events WHERE createdAt < ?",
+    args: [new Date(now - 180 * 86400000).toISOString()],
+  });
+  await client.execute({
+    sql: "DELETE FROM client_errors WHERE createdAt < ?",
+    args: [new Date(now - 90 * 86400000).toISOString()],
+  });
+}
+
+/**
+ * Everything the founder's admin dashboard shows, in one call.
+ *
+ * MEMOIZED (55s) with in-flight coalescing: the dashboard auto-refreshes every
+ * 60s and may be open in several tabs — without the cache each viewer would
+ * re-run ~25 queries against Turso (network round-trips + row-read quota) and
+ * a forgotten open tab could burn the free tier's monthly quota on its own.
+ * All independent queries run CONCURRENTLY via Promise.all (2 batches instead
+ * of ~29 sequential round-trips).
+ */
+let statsCache = { at: 0, promise: null };
+
+async function adminStats() {
+  const now = Date.now();
+  if (statsCache.promise && now - statsCache.at < 55000) return statsCache.promise;
+  const p = computeAdminStats(now).catch((err) => {
+    // Never cache a failure — the next request retries fresh.
+    if (statsCache.promise === p) statsCache = { at: 0, promise: null };
+    throw err;
+  });
+  statsCache = { at: now, promise: p };
+  return p;
+}
+
+async function computeAdminStats(now) {
+  await init();
+  const day = 86400000;
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  const num = (v) => Number(v) || 0;
+  const one = async (sql, args = []) => {
+    const rs = await client.execute({ sql, args });
+    return rs.rows[0] || {};
+  };
+  const all = async (sql, args = []) => (await client.execute({ sql, args })).rows;
+  const count = async (sql, args = []) => num((await one(sql, args)).n);
+
+  // Actor identity: ingest-time stitching (stitchTelemetryIdentity) backfills
+  // userId onto a device's pre-login rows, so COALESCE counts one human once.
+  const activeSince = (since) =>
+    count(
+      "SELECT COUNT(DISTINCT COALESCE(userId, anonId)) AS n FROM events WHERE createdAt >= ?",
+      [since]
+    );
+
+  // 14 fixed day buckets (zero-filled below): missing days must render as
+  // ZERO bars — a gap that silently collapses would hide an outage day.
+  const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
+  const days14 = Array.from({ length: 14 }, (_, i) => dayKey(now - (13 - i) * day));
+  const zeroFill = (rows) => {
+    const m = new Map(rows.map((r) => [String(r.d), num(r.n)]));
+    return days14.map((d) => ({ date: d, value: m.get(d) || 0 }));
+  };
+
+  const since30 = iso(30 * day);
+
+  const [
+    usersTotal, usersNew24h, usersNew7d, signups30d, pushEnabled, hosts, drivers,
+    activeNow, dau, wau, mau,
+    devicesSeen, supplyRow, spotsRemoved,
+    bkRows, reqAgg, realDeclined, revRows,
+    errors24h, errors7d, errorUsers24h, recentErrorRows,
+    events24h, topScreenRows,
+    signedIn30, viewedSpot30, requested30, gotAccepted30,
+    dauSeriesRows, bookingSeriesRows,
+  ] = await Promise.all([
+    count("SELECT COUNT(*) AS n FROM users"),
+    count("SELECT COUNT(*) AS n FROM users WHERE createdAt >= ?", [iso(day)]),
+    count("SELECT COUNT(*) AS n FROM users WHERE createdAt >= ?", [iso(7 * day)]),
+    count("SELECT COUNT(*) AS n FROM users WHERE createdAt >= ?", [since30]),
+    count("SELECT COUNT(*) AS n FROM users WHERE pushToken IS NOT NULL"),
+    count("SELECT COUNT(DISTINCT hostId) AS n FROM spots"),
+    count("SELECT COUNT(DISTINCT userId) AS n FROM bookings"),
+    activeSince(iso(15 * 60 * 1000)),
+    activeSince(iso(day)),
+    activeSince(iso(7 * day)),
+    activeSince(since30),
+    // Purge-proof rollup — truly "all time", unlike the 180-day events table.
+    count("SELECT COUNT(*) AS n FROM devices"),
+    one("SELECT COUNT(*) AS n, COALESCE(SUM(capacity), 0) AS cap FROM spots WHERE removed = 0"),
+    count("SELECT COUNT(*) AS n FROM spots WHERE removed = 1"),
+    all("SELECT status, date, durationHours, cancelledBy, createdAt FROM bookings"),
+    all("SELECT status, COUNT(*) AS n FROM host_requests GROUP BY status"),
+    // Genuine host declines only: listing-removal cascades tag cancelledBy
+    // 'host' so they can't poison the acceptance rate.
+    count("SELECT COUNT(*) AS n FROM host_requests WHERE status = 'declined' AND cancelledBy IS NULL"),
+    all(
+      `SELECT b.status, b.date, b.durationHours, b.accruedDays, s.pricePerDay AS p, s.isFree AS free
+       FROM bookings b JOIN spots s ON s.id = b.spotId
+       WHERE b.status IN ('confirmed', 'active')
+          OR (b.status = 'cancelled' AND COALESCE(b.accruedDays, 0) > 0)`
+    ),
+    count("SELECT COUNT(*) AS n FROM client_errors WHERE createdAt >= ?", [iso(day)]),
+    count("SELECT COUNT(*) AS n FROM client_errors WHERE createdAt >= ?", [iso(7 * day)]),
+    count(
+      "SELECT COUNT(DISTINCT COALESCE(userId, anonId)) AS n FROM client_errors WHERE createdAt >= ?",
+      [iso(day)]
+    ),
+    all(
+      "SELECT message, screen, fatal, appVersion, platform, deviceModel, createdAt FROM client_errors ORDER BY createdAt DESC LIMIT 20"
+    ),
+    count("SELECT COUNT(*) AS n FROM events WHERE createdAt >= ?", [iso(day)]),
+    all(
+      `SELECT json_extract(props, '$.screen') AS s, COUNT(*) AS n
+       FROM events WHERE name = 'screen_view' AND createdAt >= ?
+       GROUP BY s ORDER BY n DESC LIMIT 8`,
+      [iso(7 * day)]
+    ),
+    // Funnel: ONE window (30d), one identity domain, monotone by construction.
+    count(
+      "SELECT COUNT(DISTINCT userId) AS n FROM events WHERE userId IS NOT NULL AND createdAt >= ?",
+      [since30]
+    ),
+    count(
+      `SELECT COUNT(DISTINCT COALESCE(userId, anonId)) AS n FROM events
+       WHERE name = 'screen_view' AND json_extract(props, '$.screen') = 'SpotDetail' AND createdAt >= ?`,
+      [since30]
+    ),
+    count(
+      "SELECT COUNT(DISTINCT COALESCE(userId, anonId)) AS n FROM events WHERE name = 'booking_requested' AND createdAt >= ?",
+      [since30]
+    ),
+    // Intersected with step 4's actors so old pre-telemetry APK bookings can
+    // never make step 5 exceed step 4 (an impossible funnel shape).
+    count(
+      `SELECT COUNT(DISTINCT b.userId) AS n FROM bookings b
+       WHERE b.createdAt >= ? AND b.status IN ('confirmed', 'active')
+       AND b.userId IN (SELECT DISTINCT userId FROM events
+                        WHERE name = 'booking_requested' AND userId IS NOT NULL AND createdAt >= ?)`,
+      [since30, since30]
+    ),
+    // Series bucket on the CLIENT timestamp when present: offline usage must
+    // land on the day it happened, not the day the queue finally flushed.
+    all(
+      `SELECT substr(COALESCE(clientAt, createdAt), 1, 10) AS d,
+              COUNT(DISTINCT COALESCE(userId, anonId)) AS n
+       FROM events WHERE COALESCE(clientAt, createdAt) >= ? GROUP BY d`,
+      [days14[0]]
+    ),
+    all(
+      "SELECT substr(createdAt, 1, 10) AS d, COUNT(*) AS n FROM bookings WHERE createdAt >= ? GROUP BY d",
+      [days14[0]]
+    ),
+  ]);
+
+  /* bookings — derived "completed" uses the same day-math as everywhere else */
+  const today = todayLocal();
+  const bookings = {
+    total: bkRows.length,
+    pending: 0,
+    upcoming: 0,
+    completed: 0,
+    cancelledByDriver: 0,
+    cancelledByHost: 0,
+    declined: 0,
+    created24h: 0,
+    created7d: 0,
+  };
+  for (const b of bkRows) {
+    if (String(b.createdAt || "") >= iso(day)) bookings.created24h += 1;
+    if (String(b.createdAt || "") >= iso(7 * day)) bookings.created7d += 1;
+    if (b.status === "pending") bookings.pending += 1;
+    else if (b.status === "confirmed" || b.status === "active") {
+      if (completedDaysOf(b, today) >= bookingDays(b)) bookings.completed += 1;
+      else bookings.upcoming += 1;
+    } else if (b.status === "cancelled") {
+      if (b.cancelledBy === "host") bookings.cancelledByHost += 1;
+      else if (b.cancelledBy === "driver") bookings.cancelledByDriver += 1;
+      else bookings.declined += 1; // decline path leaves cancelledBy null
+    }
+  }
+  const req = { pending: 0, accepted: 0, declined: 0, cancelled: 0 };
+  for (const r of reqAgg) if (req[r.status] !== undefined) req[r.status] = num(r.n);
+  const decisions = req.accepted + realDeclined;
+  const acceptanceRate = decisions > 0 ? Math.round((req.accepted / decisions) * 100) : null;
+
+  /* revenue — global accrual, same model as hostAccruals */
+  let revenueAccrued = 0;
+  for (const r of revRows) {
+    if (r.free) continue;
+    const daysTotal = bookingDays(r);
+    const daysDone =
+      r.status === "cancelled"
+        ? Math.min(daysTotal, Math.max(0, num(r.accruedDays)))
+        : completedDaysOf(r, today);
+    if (daysDone > 0) revenueAccrued += Math.round(num(r.p) * daysDone);
+  }
+
+  const recentErrors = recentErrorRows.map((r) => ({
+    message: String(r.message || "").slice(0, 200),
+    screen: r.screen || null,
+    fatal: !!num(r.fatal),
+    appVersion: r.appVersion || null,
+    platform: r.platform || null,
+    deviceModel: r.deviceModel || null,
+    at: r.createdAt,
+  }));
+
+  const topScreens7d = topScreenRows
+    .filter((r) => r.s)
+    .map((r) => ({ screen: String(r.s), views: num(r.n) }));
+
+  return {
+    generatedAt: new Date(now).toISOString(),
+    users: {
+      total: usersTotal,
+      new24h: usersNew24h,
+      new7d: usersNew7d,
+      signups30d,
+      hosts,
+      drivers,
+      pushEnabled,
+      devicesSeen,
+    },
+    active: { now: activeNow, dau, wau, mau },
+    supply: {
+      spotsLive: num(supplyRow.n),
+      totalCapacity: num(supplyRow.cap),
+      spotsRemoved,
+    },
+    bookings,
+    requests: { ...req, realDeclined, acceptanceRate },
+    revenue: { accruedTotal: revenueAccrued, currency: "INR" },
+    errors: { last24h: errors24h, last7d: errors7d, usersAffected24h: errorUsers24h, recent: recentErrors },
+    engagement: {
+      events24h,
+      topScreens7d,
+      funnel30d: {
+        openedApp: mau, // identical query/window — reuse, don't re-scan
+        signedIn: signedIn30,
+        viewedSpot: viewedSpot30,
+        requestedBooking: requested30,
+        gotAccepted: gotAccepted30,
+      },
+    },
+    series: { dau: zeroFill(dauSeriesRows), bookings: zeroFill(bookingSeriesRows) },
+    health: {
+      uptimeSec: Math.round(process.uptime()),
+      db: backend,
+      serverTime: new Date(now).toISOString(),
+    },
+  };
+}
+
 /* ───────────────────────── seed support ───────────────────────── */
 
 const upsertUser = (row) => upsertRow("users", row);
@@ -1381,6 +1912,7 @@ module.exports = {
   toRating,
   isSpotAvailableNow,
   isBookingCompleted,
+  isBookingRatable,
   getRowsByIds,
   // users
   getUserById,
@@ -1404,6 +1936,7 @@ module.exports = {
   updateBooking,
   createBookingWithRequest,
   cancelBookingWithRequest,
+  hostCancelAcceptedRequest,
   // host requests
   listRequestsByHost,
   getRequestRow,
@@ -1431,6 +1964,12 @@ module.exports = {
   deleteMessagesForBooking,
   purgeDeadChats,
   chatSummaryForUser,
+  // telemetry / admin
+  insertEventsBatch,
+  insertClientErrorsBatch,
+  stitchTelemetryIdentity,
+  purgeTelemetry,
+  adminStats,
   // seed helpers
   upsertUser,
   upsertSpot,
