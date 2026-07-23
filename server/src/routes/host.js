@@ -160,7 +160,7 @@ router.delete("/listings/:id", ah(async (req, res) => {
       b.userId,
       "Booking cancelled",
       `${spot.title} is no longer available. Tap to find another spot nearby.`,
-      { type: "booking_update", bookingId: b.id }
+      { type: "booking_update", bookingId: b.id, tab: "Past" }
     );
   }
   res.json({ ok: true, ...result });
@@ -184,8 +184,10 @@ router.get("/requests", ah(async (req, res) => {
       (row.status === "pending" || row.status === "accepted") &&
       booking && booking.status === "cancelled"
     ) {
-      await db.updateRequest(row.id, { status: "cancelled" });
+      const by = booking.cancelledBy || "driver";
+      await db.updateRequest(row.id, { status: "cancelled", cancelledBy: by });
       row.status = "cancelled";
+      row.cancelledBy = by;
     }
 
     const r = db.toHostRequest(row);
@@ -221,13 +223,33 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
     return res.status(400).json({ error: '"accept" must be a boolean' });
   }
 
+  // Terminal states are terminal — a stale screen or a double-tap must never
+  // rewrite history (or resurrect a dead request to "accepted").
+  if (request.status === "declined") {
+    if (!accept) return res.json(db.toHostRequest(request)); // idempotent decline
+    return res.status(409).json({ error: "You already declined this request." });
+  }
+  if (request.status === "cancelled") {
+    return res.status(409).json({ error: "This request was already cancelled." });
+  }
+  // An ACCEPTED booking isn't "declined" away — that's a cancellation, which
+  // has its own flow (reason + driver notification + contact re-lock).
+  if (!accept && request.status === "accepted") {
+    return res.status(409).json({
+      error: "This booking is already accepted — use Cancel booking instead.",
+    });
+  }
+
   // A withdrawn booking must never be resurrected: if the driver already
   // cancelled, retire the request as "cancelled" (the DRIVER's action — not
   // "declined", which would read as the host's) and tell the host.
   if (accept && request.bookingId) {
     const booking = await db.getBookingRow(request.bookingId);
     if (booking && booking.status === "cancelled") {
-      await db.updateRequest(request.id, { status: "cancelled" });
+      await db.updateRequest(request.id, {
+        status: "cancelled",
+        cancelledBy: booking.cancelledBy || "driver",
+      });
       return res
         .status(409)
         .json({ error: "The driver has withdrawn this request." });
@@ -257,7 +279,15 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
   // nothing until the parking actually happens.
   const updated = await db.respondToRequest(request, accept, null);
 
+  // The batch's conditional writes lose to a driver cancel that landed in
+  // the guard-to-commit window — the re-read tells the truth. No "accepted"
+  // push for a booking the driver already withdrew.
+  if (updated && updated.status === "cancelled") {
+    return res.status(409).json({ error: "The driver has withdrawn this request." });
+  }
+
   // Tell the DRIVER's phone the moment the host decides — no polling needed.
+  // `tab` lands the notification tap on the right Bookings tab directly.
   if (request.requesterId) {
     pushToUserAsync(
       request.requesterId,
@@ -265,7 +295,58 @@ router.post("/requests/:id/respond", ah(async (req, res) => {
       accept
         ? `${request.spotTitle} is yours — the host's number is in your Bookings.`
         : `${request.spotTitle} isn't available. Try another spot nearby.`,
-      { type: "booking_update", bookingId: request.bookingId }
+      { type: "booking_update", bookingId: request.bookingId, tab: accept ? "Accepted" : "Past" }
+    );
+  }
+
+  res.json(db.toHostRequest(updated));
+}));
+
+/**
+ * POST /api/host/requests/:id/cancel — the HOST cancels a booking they had
+ * already ACCEPTED (allowed any time before the parking fully happened, even
+ * mid-way through). Body: {reason?}. The driver's booking flips to
+ * "cancelled by host", the phone number re-hides, the slot frees up, and the
+ * driver's phone is notified instantly.
+ */
+router.post("/requests/:id/cancel", ah(async (req, res) => {
+  const request = await db.getRequestRow(req.params.id);
+  if (!request || request.hostId !== req.user.id) {
+    return res.status(404).json({ error: "Request not found" });
+  }
+  if (request.status === "cancelled") {
+    return res.json(db.toHostRequest(request)); // already cancelled — idempotent
+  }
+  if (request.status !== "accepted") {
+    return res.status(409).json({
+      error: "Only an accepted booking can be cancelled — decline the request instead.",
+    });
+  }
+
+  const booking = request.bookingId ? await db.getBookingRow(request.bookingId) : null;
+  // A parking that fully happened is history — earnings + ratings stay.
+  if (booking && (booking.status === "completed" || db.isBookingCompleted(booking))) {
+    return res.status(409).json({ error: "This parking already happened — it can't be cancelled." });
+  }
+  // The driver beat them to it: just retire the request as the driver's cancel.
+  if (booking && booking.status === "cancelled") {
+    const by = booking.cancelledBy || "driver";
+    const synced = await db.updateRequest(request.id, { status: "cancelled", cancelledBy: by });
+    return res.json(db.toHostRequest(synced));
+  }
+
+  const reason = isNonEmptyString((req.body || {}).reason)
+    ? req.body.reason.trim().slice(0, 300)
+    : null;
+  const updated = await db.hostCancelAcceptedRequest(request, booking, reason);
+
+  // The driver was counting on this spot — their phone must hear right away.
+  if (request.requesterId) {
+    pushToUserAsync(
+      request.requesterId,
+      "Booking cancelled 😔",
+      `The host cancelled your parking at ${request.spotTitle}. Tap to find another spot nearby.`,
+      { type: "booking_update", bookingId: request.bookingId, tab: "Past" }
     );
   }
 

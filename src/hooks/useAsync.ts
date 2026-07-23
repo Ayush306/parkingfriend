@@ -104,6 +104,11 @@ export function useAsync<T>(
   }, deps);
 
   const setData = useCallback((updater: T | ((prev: T | null) => T)) => {
+    // A local write is the freshest truth. Invalidate any in-flight run so a
+    // slow poll that STARTED before this write can't resolve later and clobber
+    // it (e.g. an accepted card flipping back to Pending). loadIdRef is left
+    // alone, so a visible refetch still owns the loading/error lifecycle.
+    callIdRef.current += 1;
     setDataState((prev) =>
       typeof updater === "function"
         ? (updater as (p: T | null) => T)(prev)

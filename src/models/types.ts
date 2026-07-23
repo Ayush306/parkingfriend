@@ -153,6 +153,10 @@ export interface Booking {
   hostPhone?: string | null;
   /** Why the driver cancelled (a picked preset or free text), when cancelled. */
   cancelReason?: string;
+  /** Why the HOST cancelled (kept separate from the driver's reason). */
+  hostCancelReason?: string;
+  /** WHO cancelled: "host" = the host backed out (reads differently to the driver). */
+  cancelledBy?: "driver" | "host";
   /** True once accepted AND the parking date has passed — both sides may rate. */
   completed?: boolean;
 }
@@ -257,6 +261,8 @@ export interface HostRequest {
   time: string;
   /** "cancelled" = the DRIVER withdrew (vs "declined" = the host said no). */
   status: "pending" | "accepted" | "declined" | "cancelled";
+  /** For "cancelled": WHO did it — "host" = you backed out after accepting. */
+  cancelledBy?: "driver" | "host";
   /** Links back to the driver's booking so accept/decline updates it. */
   bookingId?: string;
   /** Last day of the parking (multi-day bookings) — from the linked booking. */

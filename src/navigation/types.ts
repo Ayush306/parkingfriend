@@ -21,7 +21,7 @@ export type RootStackParamList = {
 
   // Tab primary screens (registered inside MainTabs, but typed for convenience)
   Home: undefined;
-  Bookings: undefined;
+  Bookings: { tab?: "Requested" | "Accepted" | "Past" } | undefined;
   Post: undefined;
   Wallet: undefined;
   Profile: undefined;
@@ -51,7 +51,8 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Bookings: undefined;
+  // A notification tap can land directly on a specific tab (e.g. "Accepted").
+  Bookings: { tab?: "Requested" | "Accepted" | "Past" } | undefined;
   Post: undefined;
   Wallet: undefined;
   Profile: undefined;

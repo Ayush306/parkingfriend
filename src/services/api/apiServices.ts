@@ -130,6 +130,11 @@ function normalizeBooking(raw: any): Booking {
     otp: raw?.otp ?? undefined,
     hostPhone: raw?.hostPhone ?? null,
     cancelReason: raw?.cancelReason ?? undefined,
+    hostCancelReason: raw?.hostCancelReason ?? undefined,
+    cancelledBy:
+      raw?.cancelledBy === "host" || raw?.cancelledBy === "driver"
+        ? raw.cancelledBy
+        : undefined,
     completed: raw?.completed ?? undefined,
   };
 }
@@ -408,6 +413,15 @@ export const apiHost = {
     const raw = await http.request<any>(
       `/api/host/requests/${encodeURIComponent(id)}/respond`,
       { method: "POST", body: { accept } }
+    );
+    return normalizeRequest(raw);
+  },
+
+  /** Host cancels a booking they had already accepted (with a reason). */
+  async cancelAccepted(id: string, reason?: string): Promise<HostRequest> {
+    const raw = await http.request<any>(
+      `/api/host/requests/${encodeURIComponent(id)}/cancel`,
+      { method: "POST", body: { reason } }
     );
     return normalizeRequest(raw);
   },

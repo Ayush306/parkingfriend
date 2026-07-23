@@ -14,6 +14,7 @@ import { spotService } from "@/services/spotService";
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiBookings } from "@/services/api/apiServices";
 import { isSpotOpenNow } from "@/utils/availability";
+import { telemetry } from "@/services/telemetry";
 
 const seedBookings = bookingsData as unknown as Booking[];
 
@@ -83,7 +84,11 @@ async function readAll(): Promise<Booking[]> {
  * booking via the request's bookingId.
  */
 async function create(payload: CreateBookingPayload): Promise<Booking> {
-  if (isApiEnabled()) return apiBookings.create(payload);
+  if (isApiEnabled()) {
+    const booking = await apiBookings.create(payload);
+    telemetry.track("booking_requested", { spotId: booking.spotId });
+    return booking;
+  }
   await delay(randomLatency());
 
   // Resolve the spot for the booking snapshot.
@@ -183,7 +188,11 @@ async function getById(id: string): Promise<Booking | null> {
 
 /** Cancels a booking by id (with the driver's reason) and returns it. */
 async function cancel(id: string, reason?: string): Promise<Booking> {
-  if (isApiEnabled()) return apiBookings.cancel(id, reason);
+  if (isApiEnabled()) {
+    const booking = await apiBookings.cancel(id, reason);
+    telemetry.track("booking_cancelled", { by: "driver" });
+    return booking;
+  }
   await delay(randomLatency());
   const all = await readPersisted<Booking[]>(
     STORAGE_KEYS.bookings,
@@ -199,17 +208,23 @@ async function cancel(id: string, reason?: string): Promise<Booking> {
     contactUnlocked: false,
     hostPhone: null,
     cancelReason: reason || undefined,
+    cancelledBy: "driver",
   };
   await writePersisted(STORAGE_KEYS.bookings, all);
 
-  // Retire the linked pending host request so the host never sees a request
-  // the driver already withdrew (demo parity with the server cascade).
+  // Retire the linked host request — PENDING and ACCEPTED alike, exactly as
+  // the server cascade does, and as the DRIVER's cancel (never "declined",
+  // which would read as the host's own action). Without the accepted case a
+  // ghost "confirmed guest" would survive on the My Space tab forever.
   try {
     const requests = await readPersisted<HostRequest[]>(STORAGE_KEYS.requests, []);
     let changed = false;
     for (let i = 0; i < requests.length; i++) {
-      if (requests[i].bookingId === id && requests[i].status === "pending") {
-        requests[i] = { ...requests[i], status: "declined" };
+      if (
+        requests[i].bookingId === id &&
+        (requests[i].status === "pending" || requests[i].status === "accepted")
+      ) {
+        requests[i] = { ...requests[i], status: "cancelled", cancelledBy: "driver" };
         changed = true;
       }
     }

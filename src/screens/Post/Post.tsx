@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   ScrollView,
   RefreshControl,
   Image,
-  Linking,
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,15 +21,29 @@ import { useLiveRefresh } from "@/hooks/useLiveRefresh";
 import { haptics } from "@/utils/haptics";
 import { hostService } from "@/services/hostService";
 import { walletService } from "@/services/walletService";
-import { formatCurrency, formatDate } from "@/utils/format";
+import { formatCurrency } from "@/utils/format";
 
-import { Avatar } from "@/components/ui/Avatar";
-import { Badge } from "@/components/ui/Badge";
 import { SpotGraphic } from "@/components/ui/SpotGraphic";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { CancelReasonSheet, HOST_CANCEL_REASONS } from "@/components/ui/CancelReasonSheet";
 import { PendingRatings } from "@/components/ui/PendingRatings";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { TabSwipe } from "@/components/ui/TabSwipe";
+import { HostRequestCard } from "@/components/host/HostRequestCard";
 import { useToast } from "@/components/ui/Toast";
 import type { HostRequest, ParkingSpot, WalletSummary } from "@/models/types";
+
+/**
+ * My Space — the host's whole world on ONE page, top to bottom:
+ *   1. List a new space (the primary action)
+ *   2. Summary card: earned as host · spaces published · guests accepted
+ *   3. Your spaces (manage / remove)
+ *   4. Booking requests with Pending / Accepted / All tabs INLINE — accept,
+ *      decline, message, call and cancel right here. No extra screen hop.
+ */
+
+const REQ_TABS = ["Pending", "Accepted", "All"] as const;
+type ReqTab = (typeof REQ_TABS)[number];
 
 export default function Post() {
   const navigation = useNavigation<any>();
@@ -41,6 +54,9 @@ export default function Post() {
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<ParkingSpot | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [reqTab, setReqTab] = useState<ReqTab>("Pending");
+  const [cancelTarget, setCancelTarget] = useState<HostRequest | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const earnings = useAsync<WalletSummary>(() => walletService.getSummary(), []);
   const listings = useAsync<ParkingSpot[]>(() => hostService.getListings(), []);
@@ -55,19 +71,34 @@ export default function Post() {
     earnings.refetchSilent();
   }, 0);
 
-  const pendingRequests = (requests.data ?? []).filter(
-    (r) => r.status === "pending"
+  const allRequests = requests.data ?? [];
+  const pendingCount = useMemo(
+    () => allRequests.filter((r) => r.status === "pending").length,
+    [allRequests]
+  );
+  const acceptedCount = useMemo(
+    () => allRequests.filter((r) => r.status === "accepted").length,
+    [allRequests]
   );
 
-  // Guests whose booking the host ACCEPTED and whose parking date hasn't
-  // passed — the host's clear "who is coming" answer. Local date, not UTC.
-  const now = new Date();
-  const pad2 = (n: number) => String(n).padStart(2, "0");
-  const todayYmd = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-  const confirmedGuests = (requests.data ?? []).filter(
-    // endDate covers multi-day parkings: the guest stays visible until the
-    // LAST day of their booking has passed, not just the first.
-    (r) => r.status === "accepted" && String(r.endDate ?? r.date) >= todayYmd
+  const filteredRequests = useMemo(() => {
+    if (reqTab === "Pending") return allRequests.filter((r) => r.status === "pending");
+    if (reqTab === "Accepted") return allRequests.filter((r) => r.status === "accepted");
+    return allRequests;
+  }, [allRequests, reqTab]);
+
+  // Swipe left/right moves between the request tabs (clamped at the ends).
+  // Haptic only when the tab really changes — no buzz at the first/last tab.
+  const shiftTab = useCallback(
+    (dir: 1 | -1) => {
+      const idx = REQ_TABS.indexOf(reqTab);
+      const next = REQ_TABS[Math.min(REQ_TABS.length - 1, Math.max(0, idx + dir))];
+      if (next !== reqTab) {
+        haptics.light();
+        setReqTab(next);
+      }
+    },
+    [reqTab]
   );
 
   const onRefresh = useCallback(async () => {
@@ -80,6 +111,15 @@ export default function Post() {
 
   const openSpot = useCallback(
     (id: string) => navigation.navigate("SpotDetail", { id }),
+    [navigation]
+  );
+
+  const openChat = useCallback(
+    (r: HostRequest) => {
+      if (!r.bookingId) return;
+      haptics.light();
+      navigation.navigate("Chat", { bookingId: r.bookingId, spotTitle: r.spotTitle });
+    },
     [navigation]
   );
 
@@ -107,21 +147,58 @@ export default function Post() {
   };
 
   const respondToRequest = async (id: string, accept: boolean) => {
+    if (respondingId) return;
     setRespondingId(id);
     try {
-      await hostService.respond(id, accept);
+      const updated = await hostService.respond(id, accept);
+      // Apply the result before clearing busy, so the card flips to its new
+      // state in the same render — no window where a stale Pending card still
+      // shows live Accept/Decline (which would 409 on a second tap).
+      requests.setData((prev) =>
+        (prev ?? []).map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+      );
       haptics.success();
       toast.show(
         accept ? "Request accepted — contact shared." : "Request declined.",
         accept ? "success" : "info"
       );
-      requests.refetch();
     } catch (e: any) {
       haptics.error();
       toast.show(e?.message ?? "Couldn't update the request.", "error");
+      requests.refetchSilent();
     } finally {
       setRespondingId(null);
     }
+  };
+
+  // Host cancels a booking they had ALREADY accepted — asks for a reason
+  // first, then the driver is notified immediately and the slot frees up.
+  const doCancelAccepted = async (reason: string) => {
+    if (!cancelTarget || cancelling) return;
+    setCancelling(true);
+    try {
+      const updated = await hostService.cancelAccepted(cancelTarget.id, reason);
+      // Flip the card to Cancelled in the same render that clears busy — no
+      // window where the stale card still offers "Cancel booking" again.
+      requests.setData((prev) =>
+        (prev ?? []).map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+      );
+      setCancelTarget(null);
+      haptics.success();
+      toast.show("Booking cancelled — the driver has been notified.", "success");
+    } catch (e: any) {
+      haptics.error();
+      toast.show(e?.message ?? "Couldn't cancel this booking.", "error");
+      requests.refetchSilent();
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const emptyCopy: Record<ReqTab, string> = {
+    Pending: "No pending requests right now — new ones appear here the moment a driver asks.",
+    Accepted: "Nothing accepted yet. Accept a pending request and your confirmed guests show here.",
+    All: "When drivers request your spots, every request (and its history) shows up here.",
   };
 
   return (
@@ -202,252 +279,57 @@ export default function Post() {
           </LinearGradient>
         </Pressable>
 
-        {/* Earnings strip */}
+        {/* Host summary — earnings, live spaces, accepted guests. One glance. */}
         <Pressable
           onPress={() => {
             haptics.light();
             navigation.navigate("Wallet");
           }}
           accessibilityRole="button"
-          accessibilityLabel="Host earnings"
+          accessibilityLabel="Host summary — tap for earnings history"
           style={({ pressed }) => [{ marginTop: spacing.md, opacity: pressed ? 0.92 : 1, borderRadius: radius.lg, ...shadows.sm }]}
         >
-          <View style={[styles.earnCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}>
-            <View style={[styles.earnIcon, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
-              <Ionicons name="trending-up" size={20} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1, marginLeft: spacing.md }}>
-              <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: typography.sizes.xs }}>
-                Earned as a host
-              </Text>
-              <Text style={{ marginTop: 1, color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.xl }}>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg }]}>
+            <View style={styles.summaryCol}>
+              <View style={[styles.summaryIcon, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
+                <Ionicons name="trending-up" size={16} color={colors.primary} />
+              </View>
+              <Text style={{ marginTop: 6, color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.lg }} numberOfLines={1}>
                 {formatCurrency(earnings.data?.earningsLifetime ?? 0)}
               </Text>
-              <Text style={{ marginTop: 1, color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
-                +{formatCurrency(earnings.data?.earningsLast3Months ?? 0)} in the last 3 months
+              <Text style={{ marginTop: 1, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: typography.sizes.xs }}>
+                Earned as host
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.summaryCol}>
+              <View style={[styles.summaryIcon, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
+                <Ionicons name="home-outline" size={16} color={colors.primary} />
+              </View>
+              <Text style={{ marginTop: 6, color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.lg }}>
+                {listings.data?.length ?? 0}
+              </Text>
+              <Text style={{ marginTop: 1, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: typography.sizes.xs }}>
+                Spaces listed
+              </Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.summaryCol}>
+              <View style={[styles.summaryIcon, { backgroundColor: colors.primaryLight, borderRadius: radius.md }]}>
+                <Ionicons name="people-outline" size={16} color={colors.primary} />
+              </View>
+              <Text style={{ marginTop: 6, color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.lg }}>
+                {acceptedCount}
+              </Text>
+              <Text style={{ marginTop: 1, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: typography.sizes.xs }}>
+                Guests accepted
+              </Text>
+            </View>
           </View>
         </Pressable>
 
         {/* Rate guests whose parking has finished */}
         <PendingRatings role="host" />
-
-        {/* Incoming requests */}
-        <View style={styles.subHeaderRow}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={[styles.subLabel, { color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
-              Incoming requests
-            </Text>
-            {pendingRequests.length > 0 ? (
-              <View style={[styles.countPill, { backgroundColor: colors.primaryLight, marginLeft: 8 }]}>
-                <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
-                  {pendingRequests.length} new
-                </Text>
-              </View>
-            ) : null}
-            {/* Every tab switch re-fetches — this makes that visible. */}
-            {requests.refreshing ? (
-              <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />
-            ) : null}
-          </View>
-          {/* Always available: the full inbox with history (accepted/declined). */}
-          <Pressable
-            onPress={() => {
-              haptics.light();
-              navigation.navigate("HostRequests");
-            }}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="See all booking requests"
-            style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-              See all
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-          </Pressable>
-        </View>
-
-        {requests.loading && !requests.data ? (
-          <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.sm }]}>
-            <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
-              Loading requests…
-            </Text>
-          </View>
-        ) : pendingRequests.length === 0 ? (
-          <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.sm }]}>
-            <Ionicons name="checkmark-done-outline" size={18} color={colors.textMuted} />
-            <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
-              No pending requests right now.
-            </Text>
-          </View>
-        ) : (
-          pendingRequests.slice(0, 4).map((r) => (
-            <View
-              key={r.id}
-              style={[styles.requestCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.lg, marginTop: spacing.sm, ...shadows.sm }]}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Avatar uri={r.requesterAvatar} name={r.requesterName} size={40} />
-                <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                      {r.requesterName}
-                    </Text>
-                    {/* The driver's rating so the host knows who they're letting in */}
-                    <View style={styles.driverRating}>
-                      <Ionicons name="star" size={11} color={colors.star} />
-                      <Text style={{ marginLeft: 2, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: 11 }}>
-                        {(r.requesterRatingCount ?? 0) > 0 ? (r.requesterRating ?? 0).toFixed(1) : "New"}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text numberOfLines={1} style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
-                    {r.spotTitle}
-                  </Text>
-                </View>
-                <View style={[styles.vehiclePill, { backgroundColor: colors.surfaceAlt }]}>
-                  <Ionicons name={r.vehicleType === "bike" || r.vehicleType === "bicycle" ? "bicycle-outline" : "car-outline"} size={12} color={colors.textSecondary} />
-                  <Text style={{ marginLeft: 3, color: colors.textSecondary, fontFamily: typography.fonts.bodyMedium, fontSize: 11, textTransform: "capitalize" }}>
-                    {r.vehicleType}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.sm }}>
-                <Ionicons name="calendar-outline" size={13} color={colors.textMuted} />
-                <Text style={{ marginLeft: 4, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
-                  {formatDate(r.date)} · {r.time}
-                </Text>
-              </View>
-
-              <View style={styles.requestActions}>
-                {/* Chat with the driver — no accept needed */}
-                {r.bookingId ? (
-                  <Pressable
-                    onPress={() => {
-                      haptics.light();
-                      navigation.navigate("Chat", { bookingId: r.bookingId, spotTitle: r.spotTitle });
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Message ${r.requesterName}`}
-                    style={({ pressed }) => [styles.chatIconBtn, { borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.6 : 1 }]}
-                  >
-                    <Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.primary} />
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={() => respondToRequest(r.id, false)}
-                  disabled={respondingId === r.id}
-                  accessibilityRole="button"
-                  accessibilityLabel="Decline request"
-                  style={({ pressed }) => [styles.declineBtn, { borderColor: colors.border, borderRadius: radius.md, opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                    Decline
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => respondToRequest(r.id, true)}
-                  disabled={respondingId === r.id}
-                  accessibilityRole="button"
-                  accessibilityLabel="Accept request"
-                  style={({ pressed }) => [styles.acceptBtn, { backgroundColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.85 : 1 }]}
-                >
-                  <Text style={{ color: colors.white, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                    {respondingId === r.id ? "…" : "Accept"}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          ))
-        )}
-
-        {pendingRequests.length > 4 ? (
-          <Pressable
-            onPress={() => navigation.navigate("HostRequests")}
-            hitSlop={8}
-            style={{ marginTop: spacing.sm, alignSelf: "center" }}
-            accessibilityRole="button"
-            accessibilityLabel="View all requests"
-          >
-            <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-              View all {pendingRequests.length} requests
-            </Text>
-          </Pressable>
-        ) : null}
-
-        {/* Confirmed guests — accepted bookings that haven't happened yet.
-            THE answer to "did I accept this? who is coming?" */}
-        {confirmedGuests.length > 0 ? (
-          <>
-            <View style={styles.subHeaderRow}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-                <Text style={[styles.subLabel, { marginLeft: 6, color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
-                  Confirmed guests · {confirmedGuests.length}
-                </Text>
-              </View>
-            </View>
-            {confirmedGuests.map((g) => (
-              <View
-                key={g.id}
-                style={[styles.requestCard, { backgroundColor: colors.surface, borderColor: colors.success + "55", borderRadius: radius.lg, marginTop: spacing.sm, ...shadows.sm }]}
-              >
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Avatar uri={g.requesterAvatar} name={g.requesterName} size={40} />
-                  <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                    <Text numberOfLines={1} style={{ color: colors.text, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                      {g.requesterName}
-                    </Text>
-                    <Text numberOfLines={1} style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
-                      {g.spotTitle} · {formatDate(g.date)}
-                    </Text>
-                  </View>
-                  <Badge label="Coming" tone="success" size="sm" />
-                </View>
-                <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.sm, gap: 8 }}>
-                  {g.bookingId ? (
-                    <Pressable
-                      onPress={() => {
-                        haptics.light();
-                        navigation.navigate("Chat", { bookingId: g.bookingId, spotTitle: g.spotTitle });
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Message ${g.requesterName}`}
-                      style={({ pressed }) => [styles.guestBtn, { borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.7 : 1 }]}
-                    >
-                      <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} />
-                      <Text style={{ marginLeft: 6, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                        Message
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                  {g.requesterPhone ? (
-                    <Pressable
-                      onPress={() => {
-                        haptics.light();
-                        Linking.openURL(`tel:${g.requesterPhone!.replace(/\s+/g, "")}`).catch(() =>
-                          toast.show("Couldn't open the dialer.", "error")
-                        );
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Call ${g.requesterName}`}
-                      style={({ pressed }) => [styles.guestBtn, { backgroundColor: colors.primary, borderColor: colors.primary, borderRadius: radius.md, opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <Ionicons name="call" size={15} color={colors.white} />
-                      <Text style={{ marginLeft: 6, color: colors.white, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                        Call
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            ))}
-          </>
-        ) : null}
 
         {/* Your spaces */}
         <View style={styles.subHeaderRow}>
@@ -456,7 +338,22 @@ export default function Post() {
           </Text>
         </View>
 
-        {(listings.data ?? []).length === 0 ? (
+        {!listings.data && listings.error ? (
+          <Pressable
+            onPress={() => listings.refetch()}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading your spaces"
+            style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.sm }]}
+          >
+            <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+            <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
+              Couldn't load your spaces.
+            </Text>
+            <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+              Retry
+            </Text>
+          </Pressable>
+        ) : (listings.data ?? []).length === 0 ? (
           <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.sm }]}>
             <Ionicons name="home-outline" size={18} color={colors.textMuted} />
             <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
@@ -537,6 +434,88 @@ export default function Post() {
             ))}
           </ScrollView>
         )}
+
+        {/* Booking requests — the host's inbox, right here with tabs */}
+        <View style={styles.subHeaderRow}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text style={[styles.subLabel, { color: colors.text, fontFamily: typography.fonts.heading, fontSize: typography.sizes.md }]}>
+              Booking requests
+            </Text>
+            {pendingCount > 0 ? (
+              <View style={[styles.countPill, { backgroundColor: colors.primaryLight, marginLeft: 8 }]}>
+                <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.xs }}>
+                  {pendingCount} new
+                </Text>
+              </View>
+            ) : null}
+            {/* Every tab switch re-fetches — this makes that visible. */}
+            {requests.refreshing ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />
+            ) : null}
+          </View>
+        </View>
+
+        {/* Swipe left/right anywhere below to switch between the tabs. */}
+        <TabSwipe
+          onNext={() => shiftTab(1)}
+          onPrev={() => shiftTab(-1)}
+          style={{ minHeight: 220 }}
+        >
+          <View style={{ marginTop: spacing.sm }}>
+            <SegmentedControl
+              options={[...REQ_TABS]}
+              value={reqTab}
+              onChange={(v) => setReqTab(v as ReqTab)}
+            />
+          </View>
+
+          {requests.loading && !requests.data ? (
+            <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.md }]}>
+              <Text style={{ color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
+                Loading requests…
+              </Text>
+            </View>
+          ) : requests.error && !requests.data ? (
+            <Pressable
+              onPress={() => requests.refetch()}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading requests"
+              style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.md }]}
+            >
+              <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+              <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
+                Couldn't load requests.
+              </Text>
+              <Text style={{ color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+                Retry
+              </Text>
+            </Pressable>
+          ) : filteredRequests.length === 0 ? (
+            <View style={[styles.emptyRow, { backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, marginTop: spacing.md }]}>
+              <Ionicons name="checkmark-done-outline" size={18} color={colors.textMuted} />
+              <Text style={{ marginLeft: spacing.sm, flex: 1, color: colors.textSecondary, fontFamily: typography.fonts.body, fontSize: typography.sizes.sm }}>
+                {emptyCopy[reqTab]}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ marginTop: spacing.md }}>
+              {filteredRequests.map((r, i) => (
+                <HostRequestCard
+                  key={r.id}
+                  request={r}
+                  index={i}
+                  busy={respondingId === r.id}
+                  onRespond={(accept) => respondToRequest(r.id, accept)}
+                  onMessage={() => openChat(r)}
+                  onCancel={() => {
+                    haptics.warning();
+                    setCancelTarget(r);
+                  }}
+                />
+              ))}
+            </View>
+          )}
+        </TabSwipe>
       </ScrollView>
 
       <ConfirmDialog
@@ -550,6 +529,19 @@ export default function Post() {
         tone="danger"
         onConfirm={removeListing}
         onCancel={() => !removing && setRemoveTarget(null)}
+      />
+
+      {/* Host cancels an ACCEPTED booking — reason first, driver notified. */}
+      <CancelReasonSheet
+        visible={!!cancelTarget}
+        title="Cancel this booking?"
+        subtitle={`${cancelTarget?.requesterName ?? "The driver"} will be told immediately. Please pick a reason.`}
+        reasons={HOST_CANCEL_REASONS}
+        confirmLabel="Yes, cancel booking"
+        keepLabel="Keep the booking"
+        loading={cancelling}
+        onConfirm={doCancelAccepted}
+        onClose={() => !cancelling && setCancelTarget(null)}
       />
     </SafeAreaView>
   );
@@ -570,17 +562,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.2)",
   },
-  earnCard: {
+  summaryCard: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     padding: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  earnIcon: {
-    width: 40,
-    height: 40,
+  summaryCol: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  summaryIcon: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryDivider: {
+    width: StyleSheet.hairlineWidth,
+    marginVertical: 4,
   },
   subHeaderRow: {
     flexDirection: "row",
@@ -600,56 +601,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 14,
-  },
-  requestCard: {
-    padding: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  vehiclePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  driverRating: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginLeft: 6,
-  },
-  requestActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    gap: 8,
-  },
-  declineBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderWidth: 1,
-  },
-  chatIconBtn: {
-    width: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderWidth: 1.5,
-  },
-  guestBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 9,
-    borderWidth: 1.5,
-  },
-  acceptBtn: {
-    flex: 1.4,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
   },
   spaceCard: {
     width: 180,

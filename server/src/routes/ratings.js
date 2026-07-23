@@ -63,7 +63,9 @@ router.post("/", ah(async (req, res) => {
     return res.status(409).json({ error: "The other person is no longer available to rate." });
   }
 
-  if (!db.isBookingCompleted(booking)) {
+  // Ratable = fully completed, OR cancelled mid-stay after days that really
+  // happened (accruedDays) — cancelling can't dodge an earned review.
+  if (!db.isBookingRatable(booking)) {
     return res.status(409).json({ error: "You can rate once the parking date has passed." });
   }
   const existing = await db.getRatingByBookingRole(bookingId, raterRole);

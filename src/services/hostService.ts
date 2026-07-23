@@ -14,6 +14,7 @@ import {
 import { isApiEnabled } from "@/config/apiConfig";
 import { apiHost } from "@/services/api/apiServices";
 import { isWithinAvailabilityWindow } from "@/utils/availability";
+import { telemetry } from "@/services/telemetry";
 
 const seedListings = hostListingsData as unknown as ParkingSpot[];
 const seedRequests = hostRequestsData as unknown as HostRequest[];
@@ -91,7 +92,11 @@ async function getListings(): Promise<ParkingSpot[]> {
 
 /** Creates a new host listing from the payload and persists it. */
 async function createListing(payload: CreateListingPayload): Promise<ParkingSpot> {
-  if (isApiEnabled()) return apiHost.createListing(payload);
+  if (isApiEnabled()) {
+    const spot = await apiHost.createListing(payload);
+    telemetry.track("listing_created");
+    return spot;
+  }
   await delay(randomLatency());
 
   const template = seedListings[0];
@@ -161,7 +166,11 @@ async function getRequests(): Promise<HostRequest[]> {
  * status, and returns the updated request.
  */
 async function respond(id: string, accept: boolean): Promise<HostRequest> {
-  if (isApiEnabled()) return apiHost.respond(id, accept);
+  if (isApiEnabled()) {
+    const updated = await apiHost.respond(id, accept);
+    telemetry.track(accept ? "request_accepted" : "request_declined");
+    return updated;
+  }
   await delay(randomLatency());
   const all = await readRequests();
   const idx = all.findIndex((r) => r.id === id);
@@ -230,6 +239,69 @@ async function respond(id: string, accept: boolean): Promise<HostRequest> {
 }
 
 /**
+ * Host cancels a booking they had already ACCEPTED (any time before the
+ * parking has fully happened). The driver's booking flips to "cancelled by
+ * host" (phone re-hidden), the slot frees up, and the driver is notified.
+ */
+async function cancelAccepted(id: string, reason?: string): Promise<HostRequest> {
+  if (isApiEnabled()) {
+    const updated = await apiHost.cancelAccepted(id, reason);
+    telemetry.track("booking_cancelled", { by: "host" });
+    return updated;
+  }
+  await delay(randomLatency());
+  const all = await readRequests();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx === -1) throw new Error("Request not found.");
+  if (all[idx].status === "cancelled") return clone(all[idx]); // idempotent
+  if (all[idx].status !== "accepted") {
+    throw new Error("Only an accepted booking can be cancelled.");
+  }
+  all[idx] = { ...all[idx], status: "cancelled", cancelledBy: "host" };
+  await writePersisted(STORAGE_KEYS.requests, all);
+
+  // Demo parity with the server: free the slot back up…
+  try {
+    const listings = await readPersisted<ParkingSpot[]>(STORAGE_KEYS.listings, []);
+    const spotIdx = listings.findIndex((s) => s.title === all[idx].spotTitle);
+    if (spotIdx !== -1) {
+      const spot = listings[spotIdx];
+      const capacity = Math.max(1, Number(spot.capacity) || 1);
+      const remaining = Math.max(0, Number(spot.remainingCount ?? capacity) || 0);
+      listings[spotIdx] = { ...spot, capacity, remainingCount: Math.min(capacity, remaining + 1) };
+      await writePersisted(STORAGE_KEYS.listings, listings);
+    }
+  } catch {
+    // Best-effort in demo mode.
+  }
+  // …and cancel the driver's linked booking (phone re-hidden).
+  const bookingId = all[idx].bookingId;
+  if (bookingId) {
+    try {
+      const bookings = await readPersisted<Booking[]>(STORAGE_KEYS.bookings, []);
+      const bIdx = bookings.findIndex((b) => b.id === bookingId);
+      if (bIdx !== -1) {
+        bookings[bIdx] = {
+          ...bookings[bIdx],
+          status: "cancelled",
+          contactUnlocked: false,
+          hostPhone: null,
+          cancelledBy: "host",
+          // The host's reason has its OWN field — cancelReason stays
+          // driver-authored everywhere (server parity).
+          ...(reason ? { hostCancelReason: reason } : {}),
+        };
+        await writePersisted(STORAGE_KEYS.bookings, bookings);
+      }
+    } catch {
+      // Booking sync is best-effort in demo mode.
+    }
+  }
+
+  return clone(all[idx]);
+}
+
+/**
  * Host removes a listing. On the API this cascade-cancels every live booking
  * and declines every pending request on the spot server-side; in demo mode we
  * mirror that locally. Returns how many bookings were cancelled.
@@ -237,6 +309,7 @@ async function respond(id: string, accept: boolean): Promise<HostRequest> {
 async function deleteListing(id: string): Promise<{ cancelledBookings: number }> {
   if (isApiEnabled()) {
     const res = await apiHost.deleteListing(id);
+    telemetry.track("listing_removed");
     return { cancelledBookings: res.cancelledBookings };
   }
   await delay(randomLatency());
@@ -294,4 +367,5 @@ export const hostService = {
   deleteListing,
   getRequests,
   respond,
+  cancelAccepted,
 };

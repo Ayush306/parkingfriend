@@ -106,8 +106,15 @@ async function sweep(isAlive: () => boolean = () => true): Promise<void> {
         }
 
         // The DRIVER withdrew (pending or already-accepted) → tell the host.
-        // "declined" transitions are the host's own action — those stay silent.
-        if (was !== undefined && was !== "cancelled" && r.status === "cancelled") {
+        // "declined" transitions are the host's own action — those stay
+        // silent. So does cancelledBy "host": the HOST cancelled that
+        // booking themselves; echoing "driver cancelled" would be wrong.
+        if (
+          was !== undefined &&
+          was !== "cancelled" &&
+          r.status === "cancelled" &&
+          r.cancelledBy !== "host"
+        ) {
           await eventFeedService.add({
             id: `evt_req_${r.id}_cancelled`,
             title: "Driver cancelled",
@@ -146,9 +153,16 @@ async function sweep(isAlive: () => boolean = () => true): Promise<void> {
         const was = prev[b.id];
         if (was === b.status) continue;
         const spotTitle = b.spot?.title ?? "your parking";
+        // The driver's OWN cancel stays silent (no echo of their own action).
+        // cancelledBy is authoritative; legacy rows fall back to "a reason
+        // means the driver cancelled" (only drivers recorded reasons before).
+        const ownCancel =
+          b.cancelledBy === "driver" || (!b.cancelledBy && !!b.cancelReason);
 
-        // pending → confirmed: the host said yes.
-        if (b.status === "confirmed" && was === "pending") {
+        // → confirmed: the host said yes. `was === undefined` covers a booking
+        // first observed AFTER the accept (the driver pocketed the phone before
+        // the next sweep persisted "pending") — the event must still fire, once.
+        if (b.status === "confirmed" && (was === "pending" || was === undefined)) {
           await eventFeedService.add({
             id: `evt_bk_${b.id}_accepted`,
             title: "Request accepted 🎉",
@@ -159,47 +173,45 @@ async function sweep(isAlive: () => boolean = () => true): Promise<void> {
           popups.push({
             title: "Parking accepted 🎉",
             body: `${spotTitle} is yours — the host's number is in your Bookings.`,
-            data: { type: "booking_update", bookingId: b.id },
+            data: { type: "booking_update", bookingId: b.id, tab: "Accepted" },
           });
         }
 
-        // pending → cancelled WITHOUT a driver reason = the host declined.
-        // (A driver's own cancel records a cancelReason, so it stays silent.)
-        if (b.status === "cancelled" && was === "pending" && !b.cancelReason) {
-          await eventFeedService.add({
-            id: `evt_bk_${b.id}_declined`,
-            title: "Request declined",
-            message: `The host couldn't take your request for ${spotTitle}. Try another spot nearby.`,
-            type: "booking",
-            icon: "close-circle",
-          });
-          popups.push({
-            title: "Request declined",
-            body: `${spotTitle} isn't available. Try another spot nearby.`,
-            data: { type: "booking_update", bookingId: b.id },
-          });
-        }
-
-        // confirmed/active → cancelled WITHOUT a driver reason: an already-
-        // accepted parking fell through (e.g. the host removed the listing).
-        // The driver must hear about this — they were counting on the spot.
-        if (
-          b.status === "cancelled" &&
-          (was === "confirmed" || was === "active") &&
-          !b.cancelReason
-        ) {
-          await eventFeedService.add({
-            id: `evt_bk_${b.id}_cancelled`,
-            title: "Booking cancelled",
-            message: `Your confirmed parking at ${spotTitle} was cancelled by the host. Find another spot nearby.`,
-            type: "booking",
-            icon: "alert-circle",
-          });
-          popups.push({
-            title: "Booking cancelled",
-            body: `Your parking at ${spotTitle} was cancelled. Tap to find another spot.`,
-            data: { type: "booking_update", bookingId: b.id },
-          });
+        // → cancelled, and NOT the driver's own withdrawal. Route on WHO
+        // cancelled, not on the prior snapshot: a plain decline leaves
+        // cancelledBy null; a host cancel (or listing removal) sets "host".
+        // Keying on cancelledBy (not `was`) means a booking first seen after
+        // the cancel — was === undefined — still notifies, with the right
+        // wording, exactly once (feed ids are deduped).
+        if (b.status === "cancelled" && !ownCancel) {
+          const hostCancel = b.cancelledBy === "host";
+          if (hostCancel) {
+            await eventFeedService.add({
+              id: `evt_bk_${b.id}_cancelled`,
+              title: "Booking cancelled",
+              message: `The host cancelled your parking at ${spotTitle}. Find another spot nearby.`,
+              type: "booking",
+              icon: "alert-circle",
+            });
+            popups.push({
+              title: "Booking cancelled",
+              body: `The host cancelled your parking at ${spotTitle}. Tap to find another spot.`,
+              data: { type: "booking_update", bookingId: b.id, tab: "Past" },
+            });
+          } else {
+            await eventFeedService.add({
+              id: `evt_bk_${b.id}_declined`,
+              title: "Request declined",
+              message: `The host couldn't take your request for ${spotTitle}. Try another spot nearby.`,
+              type: "booking",
+              icon: "close-circle",
+            });
+            popups.push({
+              title: "Request declined",
+              body: `${spotTitle} isn't available. Try another spot nearby.`,
+              data: { type: "booking_update", bookingId: b.id, tab: "Past" },
+            });
+          }
         }
       }
     }
@@ -309,14 +321,21 @@ export function useNotificationWatcher(): void {
     // PRODUCTION channel: register for server push. Once active, the server
     // notifies this phone directly and polling backs off to a rare
     // reconciliation sweep — this is how the big apps do it.
-    void pushService.registerForPush().then((registered) => {
+    void pushService.registerForPush().then(async (registered) => {
       if (disposed) return;
-      pushDeliveryActive = registered;
-      if (registered && timer != null) {
+      // If registration failed THIS launch but the server still holds this
+      // device's token from a previous successful launch, it will keep pushing
+      // — so treat push as the active channel to avoid the sweep ALSO firing a
+      // local pop-up for every event (a double notification).
+      const active =
+        registered || (await pushService.isPushRegistered().catch(() => false));
+      if (disposed) return;
+      pushDeliveryActive = active;
+      if (active && timer != null) {
         stop();
         pollMs = POLL_MS_PUSH_ACTIVE;
         start();
-      } else if (registered) {
+      } else if (active) {
         pollMs = POLL_MS_PUSH_ACTIVE;
       }
     });

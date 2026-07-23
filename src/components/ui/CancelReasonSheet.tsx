@@ -7,12 +7,11 @@ import {
   Pressable,
   ScrollView,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/theme/ThemeContext";
+import { KeyboardAvoider } from "@/components/ui/KeyboardAvoider";
 import { haptics } from "@/utils/haptics";
 
 /** The special "Other" option that reveals a free-text field. */
@@ -26,6 +25,15 @@ export const DRIVER_CANCEL_REASONS = [
   "It's too far from where I need to be",
   "The price is too high",
   "I booked it by mistake",
+];
+
+/** Reasons a HOST might cancel a booking they had already accepted. */
+export const HOST_CANCEL_REASONS = [
+  "My space is no longer available",
+  "I need the space for myself",
+  "I accepted by mistake",
+  "The driver isn't responding",
+  "Maintenance / repair work at the space",
 ];
 
 export interface CancelReasonSheetProps {
@@ -98,10 +106,7 @@ export const CancelReasonSheet: React.FC<CancelReasonSheetProps> = ({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoider style={styles.flex}>
         <Pressable
           style={[styles.overlay, { backgroundColor: colors.overlay }]}
           onPress={loading ? undefined : onClose}
@@ -283,7 +288,7 @@ export const CancelReasonSheet: React.FC<CancelReasonSheetProps> = ({
             </MotiView>
           </Pressable>
         </Pressable>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </Modal>
   );
 };

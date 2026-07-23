@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Pressable,
   ActivityIndicator,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -23,6 +23,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { NoBookings } from "@/components/illustrations/NoBookings";
 import { CancelReasonSheet } from "@/components/ui/CancelReasonSheet";
+import { TabSwipe } from "@/components/ui/TabSwipe";
 import { PendingRatings } from "@/components/ui/PendingRatings";
 import { useToast } from "@/components/ui/Toast";
 
@@ -94,6 +95,7 @@ const EMPTY_COPY: Record<TabLabel, { title: string; subtitle: string }> = {
 
 export default function Bookings() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const { colors, spacing, typography, radius } = useTheme();
   const toast = useToast();
   const userLoc = useUserLocation();
@@ -112,6 +114,30 @@ export default function Bookings() {
   const [refreshing, setRefreshing] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<Booking | null>(null);
   const [cancelling, setCancelling] = useState(false);
+
+  // A notification tap can land directly on a tab ("Parking accepted 🎉" →
+  // Accepted; a decline/cancel → Past). Reacts to every new tap, not just
+  // the first mount.
+  useEffect(() => {
+    const wanted = (route.params as any)?.tab;
+    if (wanted && (TABS as readonly string[]).includes(wanted)) {
+      setTab(wanted as TabLabel);
+    }
+  }, [route.params]);
+
+  // Finger swipe left/right walks the tabs (clamped at the ends). Haptic
+  // only when the tab really changes — no buzz at the first/last tab.
+  const shiftTab = useCallback(
+    (dir: 1 | -1) => {
+      const idx = TABS.indexOf(tab);
+      const next = TABS[Math.min(TABS.length - 1, Math.max(0, idx + dir))];
+      if (next !== tab) {
+        haptics.light();
+        setTab(next);
+      }
+    },
+    [tab]
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -159,6 +185,10 @@ export default function Bookings() {
       } catch (e: any) {
         haptics.error();
         toast.show(e?.message ?? "Couldn't cancel this booking.", "error");
+        // The booking may have changed under us (e.g. the host cancelled it or
+        // it completed) — re-fetch so the card reflects reality instead of
+        // staying "Accepted" with a live Call/Cancel it no longer supports.
+        refetchSilent();
       } finally {
         setCancelling(false);
       }
@@ -213,9 +243,10 @@ export default function Bookings() {
             </View>
             <Badge
               label={
-                // Your OWN cancel (it carries your reason) reads "Cancelled";
-                // only a host's refusal reads "Declined".
-                effectiveStatus(item) === "cancelled" && item.cancelReason
+                // "Cancelled" = someone backed out (you, or the host after
+                // accepting); "Declined" = the host said no to the request.
+                effectiveStatus(item) === "cancelled" &&
+                (item.cancelReason || item.cancelledBy === "host")
                   ? "Cancelled"
                   : STATUS_LABEL[effectiveStatus(item)]
               }
@@ -223,6 +254,16 @@ export default function Bookings() {
               size="sm"
             />
           </View>
+
+          {/* The host backed out AFTER accepting — say so plainly. */}
+          {effectiveStatus(item) === "cancelled" && item.cancelledBy === "host" ? (
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: spacing.sm }}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+              <Text style={{ marginLeft: 5, flex: 1, color: colors.textMuted, fontFamily: typography.fonts.body, fontSize: typography.sizes.xs }}>
+                The host cancelled this booking.
+              </Text>
+            </View>
+          ) : null}
 
           <View style={[styles.rowBetween, { marginTop: spacing.md }]}>
             <Text style={{ color: colors.text, fontFamily: typography.fonts.headingBold, fontSize: typography.sizes.md }}>
@@ -233,41 +274,42 @@ export default function Bookings() {
             </Text>
           </View>
 
-          {/* Chat is available the WHOLE parking lifespan — even while the
-              request is still pending (the phone number stays locked until
-              the host accepts, but messages don't need an unlock). */}
-          {["pending", "confirmed", "active"].includes(effectiveStatus(item)) ? (
-            <Pressable
-              onPress={() => {
-                haptics.light();
-                navigation.navigate("Chat", {
-                  bookingId: item.id,
-                  spotTitle: item.spot.title,
-                });
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Message the host"
-              style={({ pressed }) => [
-                styles.callRow,
-                {
-                  backgroundColor: colors.surface,
-                  borderWidth: 1.5,
-                  borderColor: colors.primary,
-                  borderRadius: radius.md,
-                  marginTop: spacing.md,
-                  opacity: pressed ? 0.8 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
-              <Text style={{ marginLeft: 8, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
-                Message host
-              </Text>
-            </Pressable>
-          ) : null}
+          {/* Message is the ONE contact option that's always there — during
+              the parking's lifespan it chats live; after completion/decline
+              it opens the conversation's closed state. */}
+          <Pressable
+            onPress={() => {
+              haptics.light();
+              navigation.navigate("Chat", {
+                bookingId: item.id,
+                spotTitle: item.spot.title,
+              });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Message the host"
+            style={({ pressed }) => [
+              styles.callRow,
+              {
+                backgroundColor: colors.surface,
+                borderWidth: 1.5,
+                borderColor: colors.primary,
+                borderRadius: radius.md,
+                marginTop: spacing.md,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
+            <Text style={{ marginLeft: 8, color: colors.primary, fontFamily: typography.fonts.bodySemi, fontSize: typography.sizes.sm }}>
+              Message host
+            </Text>
+          </Pressable>
 
-          {/* The whole point: phone appears only after the host accepts. */}
-          {item.contactUnlocked && item.hostPhone ? (
+          {/* Phone appears only after the host accepts — and goes away again
+              once the parking is over or cancelled (Message stays). */}
+          {item.contactUnlocked &&
+          item.hostPhone &&
+          ["confirmed", "active"].includes(effectiveStatus(item)) ? (
             <Pressable
               onPress={() => callHost(item.hostPhone!)}
               accessibilityRole="button"
@@ -334,6 +376,8 @@ export default function Bookings() {
         <PendingRatings role="driver" />
       </View>
 
+      {/* Swipe left/right anywhere in the list to switch tabs. */}
+      <TabSwipe onNext={() => shiftTab(1)} onPrev={() => shiftTab(-1)} style={{ flex: 1 }}>
       <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.md }}>
         <SegmentedControl
           options={[...TABS]}
@@ -342,7 +386,7 @@ export default function Bookings() {
         />
       </View>
 
-      {loading ? (
+      {loading && !data ? (
         <View style={{ paddingHorizontal: spacing.xl }}>
           {[0, 1, 2, 3].map((i) => (
             <View key={i} style={{ marginBottom: spacing.md }}>
@@ -350,7 +394,7 @@ export default function Bookings() {
             </View>
           ))}
         </View>
-      ) : error ? (
+      ) : error && !data ? (
         <ErrorState onRetry={refetch} style={{ flex: 1 }} />
       ) : filtered.length === 0 ? (
         <FlatList<Booking>
@@ -402,6 +446,7 @@ export default function Bookings() {
           }
         />
       )}
+      </TabSwipe>
 
       <CancelReasonSheet
         visible={!!cancelTarget}
